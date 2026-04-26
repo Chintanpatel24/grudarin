@@ -11,7 +11,7 @@ setup(
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
     author="Grudarin Contributors",
-    license="",
+    license="GPL-3.0 license",
     packages=find_packages(),
     python_requires=">=3.8",
     install_requires=[
@@ -27,7 +27,7 @@ setup(
         "Development Status :: 4 - Beta",
         "Intended Audience :: Information Technology",
         "Intended Audience :: System Administrators",
-        "License :: OSI Approved :: MIT License",
+        "License :: OSI Approved :: GPL-3.0 License",
         "Operating System :: POSIX :: Linux",
         "Operating System :: MacOS",
         "Operating System :: Microsoft :: Windows",
