@@ -1,5 +1,5 @@
 <div align=center>
-<img width="250" alt="grudarin" src="https://github.com/user-attachments/assets/b05eb60d-5abf-4351-bb8b-c6ad9fe15cb7" />
+<img width="300" alt="grudarin" src="https://github.com/user-attachments/assets/b05eb60d-5abf-4351-bb8b-c6ad9fe15cb7" />
 </div>
 
 ---
