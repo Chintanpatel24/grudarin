@@ -1,8 +1,11 @@
-# GRUDARIN
+<div align=center>
+<img width="600" height="300" alt="GAUDARIN" src="https://github.com/user-attachments/assets/8a668eca-0181-40f4-92b8-5273477ed1b3" />
+</div>
 
-**Network Monitor + Vulnerability Scanner + Force-Directed Graph**
+---
 
-Grudarin is an open-source cybersecurity tool that monitors networks in real time,
+- **Network Monitor + Vulnerability Scanner + Force-Directed Graph**
+- **Grudarin** is an open-source cybersecurity tool that monitors networks in real time,
 discovers devices, scans for vulnerabilities and misconfigurations, visualizes the
 network topology as a live force-directed graph, and saves detailed reports in
 Markdown with security findings highlighted in red bold text.
@@ -239,6 +242,6 @@ grudarin/
 
 ## Disclaimer
 
-This tool is for authorized network monitoring and security assessment only.
+- This tool is for authorized network monitoring and security assessment only.
 Ensure you have proper authorization before monitoring any network.
 Unauthorized network monitoring may violate local laws.
