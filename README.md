@@ -2,6 +2,10 @@
 
 Grudarin is a local-first, passive network observability tool for environments you own or are explicitly authorized to monitor. It captures packet metadata from a selected local interface, renders a live force-directed graph in a desktop window, and writes a structured Markdown report at the end of the session.
 
+# clone
+
+git clone --branch <branch name> --single-branch https://github.com/Chintanpatel24/flint.git
+
 ## Important scope
 
 This starter implementation is intentionally defensive and passive.
