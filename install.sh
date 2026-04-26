@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 # ================================================================
 #                    G R U D A R I N
 #          Installer for Linux / macOS / WSL
