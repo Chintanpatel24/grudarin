@@ -1,163 +1,20 @@
-#!/usr/bin/env bash
-# ================================================================
-#                    G R U D A R I N
-#                    Updater Script
-# ================================================================
-#
-# Pulls latest changes from the git repository and rebuilds
-# all compiled components.
-#
-# Usage:
-#   sudo ./update.sh
-#
-# ================================================================
+#!/usr/bin/env sh
+set -eu
 
-set -euo pipefail
-
-GRUDARIN_DIR="$(cd "$(dirname "$0")" && pwd)"
-SCANNER_SRC="$GRUDARIN_DIR/scanner"
-NETPROBE_SRC="$GRUDARIN_DIR/netprobe"
-SCANNER_BIN="$GRUDARIN_DIR/bin"
-VENV_DIR="$GRUDARIN_DIR/.venv"
-
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-BOLD='\033[1m'
-NC='\033[0m'
-
-echo ""
-echo -e "${CYAN}${BOLD}"
-echo "    ================================================================"
-echo "                          G R U D A R I N"
-echo "                        Updater v2.0.0"
-echo "    ================================================================"
-echo -e "${NC}"
-
-# ----------------------------------------------------------------
-# Step 1: Check git
-# ----------------------------------------------------------------
-echo -e "  ${CYAN}>> Checking repository${NC}"
-
-if ! command -v git &>/dev/null; then
-    echo -e "  ${RED}[fail]${NC}  git not found. Install git first."
+printf '[1/4] Verifying Git repository\n'
+if [ ! -d .git ]; then
+    printf 'This directory is not a Git repository. Clone the project with Git first.\n' >&2
     exit 1
 fi
 
-cd "$GRUDARIN_DIR"
+printf '[2/4] Pulling latest changes\n'
+git pull --ff-only
 
-if [ ! -d ".git" ]; then
-    echo -e "  ${YELLOW}[warn]${NC}  Not a git repository."
-    echo -e "  ${YELLOW}[warn]${NC}  Manual update: download latest from the repository"
-    echo -e "  ${YELLOW}[warn]${NC}  and replace the files, then run install.sh again."
-    exit 1
-fi
+printf '[3/4] Activating environment\n'
+. .venv/bin/activate
 
-# ----------------------------------------------------------------
-# Step 2: Stash local changes
-# ----------------------------------------------------------------
-echo -e "  ${CYAN}>> Saving local changes${NC}"
+printf '[4/4] Reinstalling Grudarin\n'
+python -m pip install --upgrade pip
+python -m pip install -e .
 
-LOCAL_CHANGES=false
-if ! git diff --quiet 2>/dev/null; then
-    LOCAL_CHANGES=true
-    git stash push -m "grudarin-update-$(date +%Y%m%d_%H%M%S)" 2>/dev/null
-    echo -e "  ${GREEN}[ok]${NC}    Local changes stashed"
-else
-    echo -e "  ${GREEN}[ok]${NC}    No local changes"
-fi
-
-# ----------------------------------------------------------------
-# Step 3: Pull latest
-# ----------------------------------------------------------------
-echo -e "  ${CYAN}>> Pulling latest changes${NC}"
-
-BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
-BEFORE=$(git rev-parse HEAD 2>/dev/null)
-
-git pull origin "$BRANCH" 2>&1 | while IFS= read -r line; do
-    echo "          $line"
-done
-
-AFTER=$(git rev-parse HEAD 2>/dev/null)
-
-if [ "$BEFORE" = "$AFTER" ]; then
-    echo -e "  ${GREEN}[ok]${NC}    Already up to date"
-else
-    echo -e "  ${GREEN}[ok]${NC}    Updated: ${BEFORE:0:8} -> ${AFTER:0:8}"
-    echo ""
-    echo -e "  ${CYAN}>> Recent changes:${NC}"
-    git log --oneline "$BEFORE..$AFTER" 2>/dev/null | head -10 | while IFS= read -r line; do
-        echo "          $line"
-    done
-fi
-
-# ----------------------------------------------------------------
-# Step 4: Restore local changes
-# ----------------------------------------------------------------
-if [ "$LOCAL_CHANGES" = true ]; then
-    echo -e "  ${CYAN}>> Restoring local changes${NC}"
-    git stash pop 2>/dev/null && \
-        echo -e "  ${GREEN}[ok]${NC}    Local changes restored" || \
-        echo -e "  ${YELLOW}[warn]${NC}  Merge conflict. Check git stash list."
-fi
-
-# ----------------------------------------------------------------
-# Step 5: Recompile C++ scanner
-# ----------------------------------------------------------------
-echo -e "  ${CYAN}>> Rebuilding C++ scanner${NC}"
-
-mkdir -p "$SCANNER_BIN"
-
-if command -v g++ &>/dev/null; then
-    g++ -std=c++17 -O2 -Wall -Wextra -pthread \
-        -o "$SCANNER_BIN/grudarin_scanner" \
-        "$SCANNER_SRC/scanner.cpp" \
-        -lpthread 2>&1 && \
-        echo -e "  ${GREEN}[ok]${NC}    Scanner compiled" || \
-        echo -e "  ${YELLOW}[warn]${NC}  Scanner compilation failed"
-else
-    echo -e "  ${YELLOW}[skip]${NC}  g++ not found"
-fi
-
-# ----------------------------------------------------------------
-# Step 6: Rebuild Go netprobe
-# ----------------------------------------------------------------
-echo -e "  ${CYAN}>> Rebuilding Go netprobe${NC}"
-
-if command -v go &>/dev/null; then
-    cd "$NETPROBE_SRC"
-    go build -o "$SCANNER_BIN/grudarin_netprobe" netprobe.go 2>&1 && \
-        echo -e "  ${GREEN}[ok]${NC}    Netprobe compiled" || \
-        echo -e "  ${YELLOW}[warn]${NC}  Netprobe build failed"
-    cd "$GRUDARIN_DIR"
-else
-    echo -e "  ${YELLOW}[skip]${NC}  Go not found"
-fi
-
-# ----------------------------------------------------------------
-# Step 7: Update Python dependencies
-# ----------------------------------------------------------------
-echo -e "  ${CYAN}>> Updating Python dependencies${NC}"
-
-if [ -n "$VENV_DIR" ] && [ -f "$VENV_DIR/bin/pip" ]; then
-    PIP="$VENV_DIR/bin/pip"
-else
-    PIP="pip3"
-fi
-
-$PIP install --upgrade pip --quiet 2>/dev/null
-$PIP install -r "$GRUDARIN_DIR/requirements.txt" --quiet --upgrade 2>/dev/null
-$PIP install -e "$GRUDARIN_DIR" --quiet 2>/dev/null || true
-echo -e "  ${GREEN}[ok]${NC}    Python dependencies updated"
-
-# ----------------------------------------------------------------
-# Done
-# ----------------------------------------------------------------
-echo ""
-echo -e "  ${GREEN}${BOLD}Update complete.${NC}"
-echo ""
-echo "  Run grudarin to verify:"
-echo "    sudo grudarin --list"
-echo ""
+printf 'Update complete\n'
