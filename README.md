@@ -1,247 +1,175 @@
-<div align=center>
-<img width="600" height="300" alt="GAUDARIN" src="https://github.com/user-attachments/assets/8a668eca-0181-40f4-92b8-5273477ed1b3" />
-</div>
+# Grudarin
 
----
+Grudarin is a local-first, passive network observability tool for environments you own or are explicitly authorized to monitor. It captures packet metadata from a selected local interface, renders a live force-directed graph in a desktop window, and writes a structured Markdown report at the end of the session.
 
-- **Network Monitor + Vulnerability Scanner + Force-Directed Graph**
-- **Grudarin** is an open-source cybersecurity tool that monitors networks in real time,
-discovers devices, scans for vulnerabilities and misconfigurations, visualizes the
-network topology as a live force-directed graph, and saves detailed reports in
-Markdown with security findings highlighted in red bold text.
+## Important scope
 
-## Languages Used
+This starter implementation is intentionally defensive and passive.
 
-| Language | Component | Purpose |
-|----------|-----------|---------|
-| **Python** | Core engine (`grudarin/`) | Packet capture (Scapy), data model, CLI, orchestration |
-| **C++** | Port scanner (`scanner/scanner.cpp`) | Multi-threaded TCP port scanning, banner grabbing, CVE detection |
-| **Go** | Network probe (`netprobe/netprobe.go`) | Concurrent host discovery, ARP table lookup, TCP fingerprinting |
-| **Lua** | Rules engine (`lua_rules/security_rules.lua`) | Extensible security rules, misconfig detection, anomaly analysis |
-| **Bash** | Install/Update/Uninstall (`*.sh`) | Cross-distro system setup, compilation, dependency management |
-| **Batch** | Windows installer (`install.bat`) | Windows setup with MSVC/MinGW support |
-| **Python (Pygame)** | Graph window (`graph_window.py`) | Real-time force-directed graph with physics engine |
+It does:
+- monitor a local interface that exists on the current machine
+- build a live force-directed graph of observed peers and conversations
+- write a Markdown note with devices, protocols, flows, and notable changes
+- produce basic passive hygiene findings such as IP conflicts, excessive broadcast traffic, and legacy plaintext protocols
+
+It does not:
+- actively scan arbitrary nearby Wi-Fi networks or access points
+- brute force, exploit, or bypass network security
+- perform intrusive port scanning against hosts
+- claim to discover every vulnerability on a network
+
+This keeps the tool suitable for open-source defensive use.
+
+## Topology caveat
+
+The live graph reflects observed communication relationships on the selected local interface. A passive sniffer alone cannot guarantee exact physical topology, room placement, or full switch-level path accuracy. To reach that level in an authorized environment, you would typically combine passive traffic data with switch, router, and access point telemetry.
 
 ## Features
 
-- **Real-time packet capture** with protocol analysis (TCP, UDP, ICMP, ARP, DNS, DHCP, HTTP, HTTPS, SSH, FTP, SMB, RDP, SNMP, and more)
-- **Live force-directed graph** that updates as devices appear and communicate
-- **Node labels** showing IP, MAC address, vendor, hostname, and open ports under each device
-- **Protocol labels** on graph edges showing what protocols flow between devices
-- **C++ port scanner** with 38 vulnerability signatures and 34 dangerous port definitions
-- **Go network probe** for fast concurrent host discovery across entire subnets
-- **Lua security rules** with 12 rule categories (extensible with custom rules)
-- **WiFi network discovery** showing available SSIDs, BSSIDs, signal strength
-- **LAN detection** showing connected interfaces, gateways, and routes
-- **ARP spoofing detection** (multiple MACs claiming same IP)
-- **Broadcast storm detection** (excessive broadcast traffic ratios)
-- **DNS anomaly detection** (potential tunneling or exfiltration)
-- **Outdated software detection** (old SSH, Apache, nginx, PHP, IIS versions)
-- **Known backdoor detection** (vsFTPd 2.3.4, ProFTPD 1.3.3)
-- **Markdown reports** with security findings in red bold HTML at the end
-- **JSON data export** for machine processing
-- **Zero tracking, zero telemetry** - completely offline and private
+- Pure Python implementation for the core application
+- Live force-directed graph desktop window built with Tkinter
+- Passive packet capture through Scapy
+- Structured Markdown report generation
+- Cross-platform CLI flow
+- Install scripts with visible step-by-step progress
+- Update and uninstall helper scripts
+- Local-first operation with no telemetry and no outbound tracking
+
+## Requirements
+
+- Python 3.10 or newer
+- Administrator or root privileges for packet capture on most systems
+- A supported interface visible to the local operating system
+- On Windows, Npcap is commonly required for packet capture support
 
 ## Installation
 
-### Linux / macOS / WSL
+### Linux and macOS
 
-```bash
-git clone https://github.com/Chintanpatel24/grudarin.git
-cd grudarin
+```sh
 chmod +x install.sh
-sudo ./install.sh
+./install.sh
+```
+
+After installation:
+
+```sh
+./.venv/bin/grudarin --help
+./.venv/bin/grudarin interfaces
+./.venv/bin/grudarin scan
 ```
 
 ### Windows
 
-```
-1. Install Python 3.8+ from python.org (check "Add to PATH")
-2. Install Npcap from nmap.org/npcap (check "WinPcap compatible")
-3. Open Command Prompt as Administrator
-4. cd grudarin
-5. install.bat
+Run:
+
+```bat
+install.bat
 ```
 
-### Manual (any OS)
+After installation:
 
-```bash
-pip install scapy pygame
-g++ -std=c++17 -O2 -Wall -pthread -o bin/grudarin_scanner scanner/scanner.cpp -lpthread
-cd netprobe && go build -o ../bin/grudarin_netprobe netprobe.go && cd ..
-```
-
-## Workflow
-
-```
-Step 1: List available networks
-  $ sudo grudarin --list
-
-Step 2: Start scanning
-  $ sudo grudarin --scan wlan0
-
-Step 3: Tool asks for save path and note name
-  Enter path to save notes: ~/my_reports
-  Enter a name for this scan: home_network
-
-Step 4: Live monitoring begins
-  - Terminal shows real-time packet counts, device counts, data volume
-  - Graph window opens showing network topology
-  - Devices appear as nodes, connections as edges
-  - Labels show IP, MAC, vendor, ports under each node
-
-Step 5: Stop with Ctrl+C or Q in graph window
-  - Vulnerability scan runs on discovered devices
-  - Security rules analyze traffic patterns
-  - Markdown report saved with findings in RED
+```bat
+grudarin.bat --help
+grudarin.bat interfaces
+grudarin.bat scan
 ```
 
 ## Usage
 
-```bash
-# Interactive mode (guides you through everything)
-sudo grudarin
+### Show help
 
-# List interfaces, WiFi networks, connected LANs
-sudo grudarin --list
-
-# Scan a specific interface
-sudo grudarin --scan wlan0
-
-# Scan with output path and session name
-sudo grudarin --scan eth0 -o ~/reports --name office_scan
-
-# Scan all 65535 ports on specific targets
-sudo grudarin --scan wlan0 --ports 1-65535 --targets 192.168.1.1,192.168.1.100
-
-# Headless mode (no graph, terminal only)
-sudo grudarin --scan eth0 --no-graph -d 120
-
-# Capture only, no vuln scanning
-sudo grudarin --scan wlan0 --no-scan
-
-# With BPF filter
-sudo grudarin --scan wlan0 -f "tcp port 80 or tcp port 443"
-
-# Full help
+```sh
 grudarin --help
 ```
 
-## Graph Controls
+### List local interfaces
 
-| Action | Function |
-|--------|----------|
-| Mouse Wheel | Zoom in/out |
-| Left Click + Drag Node | Move device node |
-| Left Click + Drag Background | Pan camera |
-| Right Click Node | Show device details panel |
-| `P` | Pause/resume physics simulation |
-| `S` | Save graph as PNG snapshot |
-| `R` | Reset graph layout |
-| `L` | Toggle label visibility |
-| `M` | Toggle MAC address display |
-| `Tab` | Toggle protocol stats panel |
-| `Q` / `Esc` | Quit and save report |
-
-## Output Files
-
-```
-grudarin_output/
-  grudarin_home_network_20240101_120000/
-    session_report.md       # Full report, security findings in RED at bottom
-    session_data.json       # Complete machine-readable data
-    packets.log             # Raw packet capture log
-    graph_snapshot_1.png    # Graph screenshots
+```sh
+grudarin interfaces
 ```
 
-## Security Rules
+### Start passive live monitoring
 
-The tool checks for these categories of issues:
-
-| Category | Severity | What it Detects |
-|----------|----------|-----------------|
-| Insecure Protocols | CRITICAL-MEDIUM | Telnet, FTP, unencrypted HTTP, SNMP, SMB |
-| Dangerous Ports | CRITICAL-HIGH | Redis, MongoDB, Metasploit, ADB, VNC exposed |
-| ARP Spoofing | CRITICAL | Multiple MACs on same IP (MITM attack) |
-| Broadcast Storm | HIGH | Excessive broadcast traffic ratios |
-| DNS Anomalies | HIGH | Possible DNS tunneling or exfiltration |
-| Rogue DHCP | HIGH | Excessive DHCP traffic (rogue server) |
-| Outdated Software | CRITICAL-MEDIUM | Old SSH, Apache, nginx, PHP, IIS versions |
-| Known Backdoors | CRITICAL | vsFTPd 2.3.4, ProFTPD 1.3.3 |
-| Exposed Databases | CRITICAL-HIGH | MySQL, PostgreSQL, MongoDB, Redis, Elasticsearch |
-| Gateway Issues | HIGH-MEDIUM | Multiple gateways, missing gateway |
-| Unknown Devices | MEDIUM | Unidentified devices on network |
-| Excessive Ports | HIGH | Devices with too many open ports |
-
-### Custom Rules
-
-Add rules in `lua_rules/security_rules.lua`:
-
-```lua
-rules.my_rule = function(data)
-    local ports = data.devices["some_device"].open_ports
-    if contains(ports, 4444) then
-        add_finding("critical", "Backdoor Detected", "Port 4444 open", "192.168.1.5", "Investigate now")
-    end
-end
+```sh
+grudarin scan --iface "Wi-Fi" --output ./reports --name home_capture
 ```
 
-## Management Scripts
+If `--iface`, `--output`, or `--name` are omitted, Grudarin asks for them interactively.
 
-```bash
-# Install
-sudo ./install.sh       # Linux/macOS
-install.bat             # Windows (Run as Admin)
+### Run for a fixed duration
 
-# Update (pulls from git, recompiles everything)
-sudo ./update.sh
-
-# Uninstall (removes binaries, keeps your reports)
-sudo ./uninstall.sh
+```sh
+grudarin scan --iface eth0 --output ./reports --name office_segment --seconds 120
 ```
 
-## Architecture
+### Run without the live graph window
 
-```
-grudarin/
-  install.sh              Bash installer (apt/dnf/pacman/brew/apk)
-  install.bat             Windows batch installer
-  uninstall.sh            Clean removal script
-  update.sh               Git pull + recompile updater
-  grudarin.sh             Runtime launcher (auto-created)
-  requirements.txt        Python: scapy, pygame
-  setup.py                pip package configuration
-  scanner/
-    scanner.cpp           C++ multi-threaded TCP port scanner (24KB)
-  netprobe/
-    netprobe.go           Go concurrent network host probe
-  lua_rules/
-    security_rules.lua    Lua security rules engine (12 rules)
-  bin/                    Compiled binaries (auto-created)
-    grudarin_scanner      C++ binary
-    grudarin_netprobe     Go binary
-  grudarin/               Python package
-    __init__.py           Package metadata
-    __main__.py           CLI entry point, workflow orchestration
-    capture.py            Scapy packet capture engine
-    network_model.py      Thread-safe network topology data model
-    graph_window.py       Pygame force-directed graph (real-time)
-    notes.py              Markdown + JSON report generator
-    vuln_analyzer.py      Vulnerability analysis orchestrator
+```sh
+grudarin scan --iface eth0 --output ./reports --name headless_run --no-gui
 ```
 
-## Privacy
+## Report contents
 
-- No telemetry
-- No tracking
-- No phone-home
-- No cloud dependencies
-- No external API calls
-- All processing is local
-- Open source - audit every line
+Each session produces a Markdown report containing:
+- capture metadata
+- packet and byte counts
+- protocol summary
+- observed devices with MAC addresses and IPs when available
+- top conversations
+- timeline of network changes observed during capture
+- passive findings section with highlighted higher-severity observations
 
-## Disclaimer
+## Project layout
 
-- This tool is for authorized network monitoring and security assessment only.
-Ensure you have proper authorization before monitoring any network.
-Unauthorized network monitoring may violate local laws.
+- `grudarin.py` - top-level launcher
+- `grudarin_app/cli.py` - command-line interface
+- `grudarin_app/capture.py` - passive packet capture and state tracking
+- `grudarin_app/ui.py` - live force-directed graph desktop window
+- `grudarin_app/report.py` - Markdown report generation
+- `grudarin_app/diagnostics.py` - passive hygiene checks
+- `grudarin_app/assets/grudarin_logo.ppm` - bundled icon asset for the desktop window
+
+## Privacy model
+
+Grudarin is local-first.
+
+- no telemetry
+- no cloud dependency
+- no tracking
+- no external analytics
+
+Everything stays on the machine unless you decide to store the generated Markdown report elsewhere.
+
+## Notes on permissions
+
+Packet capture typically requires elevated permissions.
+
+- On Linux, use `sudo` or grant capture capabilities appropriately.
+- On Windows, run the terminal as Administrator when needed and install Npcap if Scapy cannot see interfaces.
+- On macOS, grant required permissions and use a compatible capture setup.
+
+## Updating
+
+```sh
+chmod +x update.sh
+./update.sh
+```
+
+## Uninstalling local environment helpers
+
+```sh
+chmod +x uninstall.sh
+./uninstall.sh
+```
+
+## Future hardening ideas
+
+If you want to extend Grudarin further for your own authorized environment, good next steps are:
+- signed release artifacts
+- reproducible builds
+- unit tests around packet parsing
+- optional offline PCAP analysis mode
+- role-based labeling for routers, printers, and servers
+- export of companion JSON snapshots
+- desktop packaging for system app menus
