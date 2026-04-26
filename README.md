@@ -5,7 +5,7 @@ Grudarin is a local-first, passive network observability tool for environments y
 # clone
 
 ```
-git clone --branch <branch name> --single-branch https://github.com/Chintanpatel24/flint.git
+git clone --branch <branch name> --single-branch https://github.com/Chintanpatel24/grudarin.git
 ```
 
 ## Important scope
