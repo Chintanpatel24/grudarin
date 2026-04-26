@@ -281,7 +281,7 @@ local function parse_json(s)
     -- Use Lua's load() with safe environment for simple JSON
     -- Replace JSON true/false/null with Lua equivalents
     s = s:gsub('"([^"]-)"%s*:', '["%1"]=')
-    s = re.sub(r'\[\s*\{', '{{', s)
+    s = re.sub(r'\[\s*{', '{{', s)  
     s = s:gsub('%}%s*%]', '}}')
     s = s:gsub('%[%s*%]', '{{}}')
     s = s:gsub(': *true', '=true')
