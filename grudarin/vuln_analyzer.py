@@ -4,7 +4,6 @@ Integrates the C++ port scanner and Lua security rules engine.
 Falls back to pure Python implementations if external tools are unavailable.
 """
 
-import re
 import json
 import os
 import socket
@@ -281,7 +280,7 @@ local function parse_json(s)
     -- Use Lua's load() with safe environment for simple JSON
     -- Replace JSON true/false/null with Lua equivalents
     s = s:gsub('"([^"]-)"%s*:', '["%1"]=')
-    s = re.sub(r'\[\s*{', '{{', s)  
+    s = s:gsub('%[%s*%{', '{{')
     s = s:gsub('%}%s*%]', '}}')
     s = s:gsub('%[%s*%]', '{{}}')
     s = s:gsub(': *true', '=true')
