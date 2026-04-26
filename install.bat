@@ -15,7 +15,7 @@ setlocal enabledelayedexpansion
 echo.
 echo     ================================================================
 echo                           G R U D A R I N
-echo                     Windows Installer v2.0.0
+echo                     Windows Installer v1.0.0
 echo     ================================================================
 echo.
 
