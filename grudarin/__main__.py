@@ -16,6 +16,7 @@ import signal
 import subprocess
 import threading
 import time
+import ipaddress
 from datetime import datetime
 
 from grudarin.capture import PacketCapture
@@ -23,6 +24,7 @@ from grudarin.network_model import NetworkModel
 from grudarin.notes import NotesWriter
 from grudarin.graph_window import GraphWindow
 from grudarin.vuln_analyzer import VulnAnalyzer
+from grudarin.site_scan import SiteGraphModel, SiteScanner
 
 
 # ----------------------------------------------------------------
@@ -167,6 +169,14 @@ def list_interfaces():
 
 def parse_args():
     """Parse command line arguments."""
+    argv = list(sys.argv[1:])
+    # Support user shorthand: grudarin --scan -site example.com
+    for idx, tok in enumerate(argv):
+        if tok == "--scan" and idx + 2 < len(argv) and argv[idx + 1] == "-site":
+            domain = argv[idx + 2]
+            argv = argv[:idx] + ["--scan-site", domain] + argv[idx + 3:]
+            break
+
     parser = argparse.ArgumentParser(
         prog="grudarin",
         description=(
@@ -182,28 +192,31 @@ WORKFLOW:
 
 EXAMPLES:
   sudo grudarin --scan wlan0 --name my_home_scan
+    grudarin --scan-site tesla.com
   sudo grudarin --scan eth0 -o /tmp/reports --ports 1-65535
   sudo grudarin --scan wlan0 --no-graph --duration 120
   sudo grudarin --scan eth0 --targets 192.168.1.1,192.168.1.100
   sudo grudarin --list
 
 GRAPH CONTROLS:
-  Mouse Wheel     Zoom in/out
-  Left Drag       Move nodes
-  Left Drag BG    Pan camera
-  Right Click     Device details
-  P               Pause/resume physics
-  S               Save graph snapshot
-  R               Reset layout
-  L               Toggle labels
-  Tab             Toggle stats panel
-  Q / Esc         Quit
+    Left Click      Select node and inspect all details
+    Left Drag       Move node in graph
+    Left Drag BG    Pan graph canvas
+    Mouse Wheel     Smooth zoom in/out
+    Scan Button     Scan selected node from GUI panel
+    Live Charts     Built-in protocol and top-talker charts
+    Ctrl+C / Close  Stop capture and print report output path
 """
     )
     parser.add_argument(
         "--scan", metavar="INTERFACE",
         type=str, default=None,
         help="Start scan on this interface (e.g., wlan0, eth0, en0)"
+    )
+    parser.add_argument(
+        "--scan-site", "--site", "-site", metavar="DOMAIN",
+        type=str, default=None,
+        help="Scan a website/domain (e.g., tesla.com) and build live recon graph"
     )
     parser.add_argument(
         "--list", "-l", action="store_true",
@@ -245,7 +258,7 @@ GRAPH CONTROLS:
         "--filter", "-f", type=str, default=None,
         help="BPF filter (e.g., 'tcp port 80')"
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def print_banner():
@@ -254,7 +267,7 @@ def print_banner():
     ================================================================
                           G R U D A R I N
               Network Monitor + Vulnerability Scanner
-                    + Force-Directed Graph  v2.0.0
+               + Built-in Graph Viewer  v1.0.0
     ================================================================
     """)
 
@@ -406,11 +419,88 @@ def run_scan(iface, output_dir, scan_name, args):
 
     # Graph or headless
     if not args.no_graph:
+        def scan_node_callback(target_ip):
+            """Scan a selected graph node and return structured details."""
+            issues = []
+            open_ports = []
+
+            # Prefer C++ scanner when available.
+            if vuln_analyzer.has_cpp_scanner:
+                cpp_res = vuln_analyzer.run_cpp_scanner(
+                    target_ip,
+                    port_range=args.ports,
+                    threads=40,
+                    timeout=400,
+                )
+                if cpp_res:
+                    # Handle both host-list and single-host style payloads.
+                    hosts = cpp_res if isinstance(cpp_res, list) else [cpp_res]
+                    for host in hosts:
+                        if host.get("ip") == target_ip or host.get("target") == target_ip:
+                            for p in host.get("open_ports", []):
+                                pnum = p.get("port") if isinstance(p, dict) else p
+                                if pnum:
+                                    open_ports.append(int(pnum))
+                                if isinstance(p, dict) and p.get("vulnerability"):
+                                    issues.append({
+                                        "severity": p.get("severity", "medium"),
+                                        "text": p.get("vulnerability", ""),
+                                    })
+
+            # Python fallback or supplement.
+            if not open_ports:
+                try:
+                    parts = str(args.ports).split("-")
+                    p_start = int(parts[0]) if len(parts) >= 1 else 1
+                    p_end = int(parts[1]) if len(parts) >= 2 else 1024
+                except Exception:
+                    p_start, p_end = 1, 1024
+
+                py_ports = vuln_analyzer.run_python_scanner(
+                    target_ip,
+                    port_start=p_start,
+                    port_end=p_end,
+                    threads=40,
+                    timeout=0.35,
+                )
+                for p in py_ports:
+                    pnum = int(p.get("port", 0))
+                    if pnum > 0:
+                        open_ports.append(pnum)
+                    if pnum in vuln_analyzer.DANGEROUS_PORTS:
+                        svc, sev, risk = vuln_analyzer.DANGEROUS_PORTS[pnum]
+                        issues.append({
+                            "severity": sev,
+                            "text": f"{svc} on {pnum}: {risk}",
+                        })
+                    banner = p.get("banner", "") or ""
+                    if banner:
+                        for pat, _name, sev, desc in vuln_analyzer.VULN_SIGNATURES:
+                            if pat in banner:
+                                issues.append({"severity": sev, "text": desc})
+                                break
+
+            # Deduplicate while preserving order.
+            dedup_ports = []
+            seen = set()
+            for p in sorted(open_ports):
+                if p not in seen:
+                    seen.add(p)
+                    dedup_ports.append(p)
+
+            return {
+                "ip": target_ip,
+                "port_range": args.ports,
+                "open_ports": dedup_ports,
+                "issues": issues,
+            }
+
         graph_window = GraphWindow(
             network_model=network_model,
             stop_event=stop_event,
             notes_writer=notes_writer,
-            session_dir=session_dir
+            session_dir=session_dir,
+            scan_callback=scan_node_callback,
         )
         graph_window.run()
     else:
@@ -483,6 +573,123 @@ def run_scan(iface, output_dir, scan_name, args):
     print()
 
 
+def run_site_scan(domain, output_dir, scan_name, args):
+    """Run website/domain reconnaissance and show live graph."""
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in scan_name)
+    session_dir = os.path.join(output_dir, f"grudarin_site_{safe_name}_{timestamp}")
+    os.makedirs(session_dir, exist_ok=True)
+
+    print(f"\n  Site Target  : {domain}")
+    print(f"  Output       : {session_dir}")
+    print(f"  Scan Name    : {scan_name}")
+    print(f"  Graph        : {'Disabled' if args.no_graph else 'Enabled'}")
+    print(f"  Duration     : {'Unlimited' if args.duration == 0 else str(args.duration) + 's'}")
+    print("  Recon Types  : DNS_NAME, IP_ADDRESS, IP_RANGE, OPEN_TCP_PORT, URL,")
+    print("                 EMAIL_ADDRESS, STORAGE_BUCKET, ORG_STUB, USER_STUB,")
+    print("                 TECHNOLOGY, VULNERABILITY")
+    print()
+
+    model = SiteGraphModel()
+    notes_writer = NotesWriter(session_dir)
+    stop_event = threading.Event()
+    scanner = SiteScanner(model=model, domain=domain, stop_event=stop_event)
+
+    def on_signal(_sig, _frame):
+        print("\n\n  Stopping site scan...")
+        stop_event.set()
+
+    signal.signal(signal.SIGINT, on_signal)
+    signal.signal(signal.SIGTERM, on_signal)
+
+    scan_thread = threading.Thread(target=scanner.run, daemon=True)
+    scan_thread.start()
+
+    # Node-level scan callback for site entities.
+    def scan_site_node(target_ip):
+        issues = []
+        open_ports = []
+
+        vuln = VulnAnalyzer(network_model=model, session_dir=session_dir)
+        try:
+            ip_obj = ipaddress.ip_address(target_ip)
+            if ip_obj.version == 4:
+                ports = vuln.run_python_scanner(
+                    target_ip,
+                    port_start=1,
+                    port_end=1024,
+                    threads=40,
+                    timeout=0.35,
+                )
+                for p in ports:
+                    pn = int(p.get("port", 0))
+                    if pn > 0:
+                        open_ports.append(pn)
+                    if pn in vuln.DANGEROUS_PORTS:
+                        svc, sev, risk = vuln.DANGEROUS_PORTS[pn]
+                        issues.append({"severity": sev, "text": f"{svc} on {pn}: {risk}"})
+        except Exception as e:
+            issues.append({"severity": "medium", "text": str(e)})
+
+        return {
+            "ip": target_ip,
+            "port_range": "1-1024",
+            "open_ports": sorted(set(open_ports)),
+            "issues": issues,
+        }
+
+    if not args.no_graph:
+        graph_window = GraphWindow(
+            network_model=model,
+            stop_event=stop_event,
+            notes_writer=notes_writer,
+            session_dir=session_dir,
+            scan_callback=scan_site_node,
+        )
+
+        if args.duration and args.duration > 0:
+            def timer_stop():
+                deadline = time.time() + args.duration
+                while not stop_event.is_set() and time.time() < deadline:
+                    time.sleep(0.5)
+                stop_event.set()
+            threading.Thread(target=timer_stop, daemon=True).start()
+
+        graph_window.run()
+    else:
+        try:
+            if args.duration > 0:
+                deadline = time.time() + args.duration
+                while not stop_event.is_set() and time.time() < deadline:
+                    time.sleep(0.5)
+                stop_event.set()
+            else:
+                while not stop_event.is_set():
+                    if not scan_thread.is_alive():
+                        break
+                    time.sleep(0.5)
+        except KeyboardInterrupt:
+            stop_event.set()
+
+    stop_event.set()
+    scan_thread.join(timeout=5)
+
+    print("\n  [report] Writing final reports...")
+    notes_writer.write_final_report(model, findings=[])
+
+    stats = model.get_stats()
+    print(f"\n  Reports saved to: {session_dir}")
+    print("    session_report.md")
+    print("    session_data.json")
+    print("    packets.log")
+    print("\n  Site Scan Summary:")
+    print(f"    Entities Found : {stats['total_devices']}")
+    print(f"    Relationships  : {stats['total_connections']}")
+    print(f"    Events         : {stats['total_packets']}")
+    print(f"    Data Processed : {_fmt_bytes(stats['total_bytes'])}")
+    print("\n  Grudarin site scan complete.\n")
+
+
 def _fmt_bytes(n):
     if n < 1024:
         return f"{n} B"
@@ -514,6 +721,11 @@ def main():
         output_dir = args.output or os.path.join(os.getcwd(), "grudarin_output")
         scan_name = args.name or "session"
         run_scan(args.scan, output_dir, scan_name, args)
+    elif args.scan_site:
+        print_banner()
+        output_dir = args.output or os.path.join(os.getcwd(), "grudarin_output")
+        scan_name = args.name or args.scan_site
+        run_site_scan(args.scan_site, output_dir, scan_name, args)
     else:
         # Interactive mode
         iface, output_dir, scan_name = interactive_mode()

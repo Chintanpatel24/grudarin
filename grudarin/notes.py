@@ -433,8 +433,11 @@ class NotesWriter:
     def save_graph_snapshot(self, surface_data, filename):
         """Save a graph snapshot image."""
         try:
-            import pygame
             path = os.path.join(self.session_dir, filename)
-            pygame.image.save(surface_data, path)
+            # Tkinter Canvas supports PostScript export; keep method generic.
+            if hasattr(surface_data, "postscript"):
+                surface_data.postscript(file=path)
+            else:
+                raise RuntimeError("snapshot surface does not support export")
         except Exception as e:
             print(f"  Error saving snapshot: {e}")

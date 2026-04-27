@@ -255,6 +255,10 @@ class VulnAnalyzer:
 
             if result.returncode == 0 and result.stdout.strip():
                 return json.loads(result.stdout)
+            if result.returncode != 0:
+                err_out = (result.stderr or "").strip()
+                if err_out:
+                    print(f"  Lua rules stderr: {err_out[:400]}")
         except (subprocess.TimeoutExpired, json.JSONDecodeError, Exception) as e:
             print(f"  Lua rules error: {e}")
             try:
@@ -268,11 +272,11 @@ class VulnAnalyzer:
         """Generate a Lua script that loads rules and processes data."""
         rules_path = self.lua_rules_path.replace("\\", "/")
 
-        # Escape the JSON for embedding in Lua string
+        # Escape JSON for safe embedding in a Lua quoted string.
         escaped = data_json.replace("\\", "\\\\").replace('"', '\\"')
         escaped = escaped.replace("\n", "\\n").replace("\r", "\\r")
 
-        wrapper = f'''
+        wrapper = """
 -- Auto-generated wrapper for Grudarin rules execution
 -- Minimal JSON parser for Lua (handles the data we need)
 
@@ -287,7 +291,7 @@ local function parse_json(s)
     s = s:gsub(': *false', '=false')
     s = s:gsub(': *null', '=nil')
     -- Wrap in return statement
-    local fn, err = load("return " .. s, "json", "t", {{}})
+    local fn, err = load("return " .. s, "json", "t", {})
     if fn then
         local ok, result = pcall(fn)
         if ok then return result end
@@ -297,22 +301,22 @@ end
 
 -- Alternative: build data table directly from known structure
 local function build_data()
-    local json_str = "{escaped}"
+    local json_str = "__GRUDARIN_JSON__"
     local data = parse_json(json_str)
     if not data then
         -- Fallback: return empty structure
-        data = {{
-            protocol_counts = {{}},
+        data = {
+            protocol_counts = {},
             total_packets = 0,
-            devices = {{}},
-            scan_results = {{}},
-        }}
+            devices = {},
+            scan_results = {},
+        }
     end
     return data
 end
 
 -- Load the rules
-dofile("{rules_path}")
+dofile("__GRUDARIN_RULES_PATH__")
 
 -- Execute
 local data = build_data()
@@ -320,25 +324,28 @@ local results = run_all_rules(data)
 
 -- Output as JSON
 local function to_json_string(s)
-    return '"' .. s:gsub('\\\\', '\\\\\\\\'):gsub('"', '\\\\"'):gsub('\\n', '\\\\n'):gsub('\\r', '\\\\r') .. '"'
+    return '"' .. s:gsub('\\', '\\\\'):gsub('"', '\\"'):gsub('\\n', '\\n'):gsub('\\r', '\\r') .. '"'
 end
 
 io.write("[\\n")
 for i, f in ipairs(results) do
-    io.write("  {{\\n")
+    io.write("  {\\n")
     io.write('    "severity": ' .. to_json_string(f.severity or "info") .. ',\\n')
     io.write('    "title": ' .. to_json_string(f.title or "") .. ',\\n')
     io.write('    "description": ' .. to_json_string(f.description or "") .. ',\\n')
     io.write('    "affected": ' .. to_json_string(f.affected or "") .. ',\\n')
     io.write('    "recommendation": ' .. to_json_string(f.recommendation or "") .. '\\n')
     if i < #results then
-        io.write("  }},\\n")
+        io.write("  },\\n")
     else
-        io.write("  }}\\n")
+        io.write("  }\\n")
     end
 end
 io.write("]\\n")
-'''
+"""
+
+        wrapper = wrapper.replace("__GRUDARIN_JSON__", escaped)
+        wrapper = wrapper.replace("__GRUDARIN_RULES_PATH__", rules_path)
         return wrapper
 
     # ----------------------------------------------------------------
