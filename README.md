@@ -46,6 +46,8 @@ Grudarin is a GPL-3.0 licensed network and site reconnaissance tool with:
 | **Bash** | Install/Update/Uninstall (`*.sh`) | Cross-distro system setup, compilation, dependency management |
 | **Batch** | Windows installer (`install.bat`) | Windows setup with MSVC/MinGW support |
 
+>## visit the usage.md for more details : [Tap for more details.](usage.md)   
+
 ## Installation
 
 ### Linux/macOS/WSL
