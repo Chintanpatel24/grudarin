@@ -4,13 +4,7 @@
 
 ---
 
-# Grudarin v1.0.0
-> [!important]
-> This tool is under development !! 
-   
-
-
-Grudarin is a GPL-3.0 licensed network and site reconnaissance tool with:
+# Grudarin v1.0.0 
 >- Grudarin is a network monitoring tool that captures and analyzes real-time traffic, showing active connections, IP addresses, ports, and protocols. It helps detect anomalies, monitor bandwidth usage, and identify devices on a network. The tool supports deep inspection with features like promiscuous mode for comprehensive analysis. While its real-time visibility is strong, it requires longer scans for accurate threat detection. 
 - real-time packet monitoring
 - node-level vulnerability scanning
@@ -18,7 +12,9 @@ Grudarin is a GPL-3.0 licensed network and site reconnaissance tool with:
 - markdown + JSON reporting
 
 ## Example output
-
+> [!important]
+> This tool is under development !! 
+  
 <img width="1322" height="767" alt="gru2" src="https://github.com/user-attachments/assets/575d7720-6c31-4b84-bce4-ff4a6fb94adb" />
 <img width="1323" height="767" alt="gru1" src="https://github.com/user-attachments/assets/e150b919-bc5e-4e40-9d57-5504ca559eab" />
 
