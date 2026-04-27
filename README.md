@@ -4,13 +4,38 @@
 
 ---
 
-- **Network Monitor + Vulnerability Scanner + Force-Directed Graph**
-- **Grudarin** is an open-source cybersecurity tool that monitors networks in real time,
-discovers devices, scans for vulnerabilities and misconfigurations, visualizes the
-network topology as a live force-directed graph, and saves detailed reports in
-Markdown with security findings highlighted in red bold text.
+# Grudarin v1.0.0
 
-## Languages Used
+Grudarin is a GPL-3.0 licensed network and site reconnaissance tool with:
+- real-time packet monitoring
+- node-level vulnerability scanning
+- built-in graph dashboard (native GUI)
+- markdown + JSON reporting
+
+## Key Capabilities
+
+- Real-time LAN topology graph with smooth force simulation
+- Native built-in graph view (no external graph framework)
+- Flat orange/red nodes on a black dashboard
+- Live edge relation labels and per-node connection labels
+- Node inspector with:
+  - IP, MAC, hostname, vendor, OS hint
+  - protocols, services, open ports
+  - packets/bytes and connected peers
+- One-click node scan and scan-all-visible-nodes
+- Live dashboard charts:
+  - protocol distribution
+  - node type distribution
+  - relation/link type counts
+  - top talkers
+  - realtime timeline (nodes/events/bytes)
+- Site scan mode with graph entities:
+  - DNS_NAME, IP_ADDRESS, IP_RANGE, OPEN_TCP_PORT
+  - URL, EMAIL_ADDRESS, STORAGE_BUCKET
+  - ORG_STUB, USER_STUB
+  - TECHNOLOGY, VULNERABILITY
+
+## Tech Stack
 
 | Language | Component | Purpose |
 |----------|-----------|---------|
@@ -20,7 +45,84 @@ Markdown with security findings highlighted in red bold text.
 | **Lua** | Rules engine (`lua_rules/security_rules.lua`) | Extensible security rules, misconfig detection, anomaly analysis |
 | **Bash** | Install/Update/Uninstall (`*.sh`) | Cross-distro system setup, compilation, dependency management |
 | **Batch** | Windows installer (`install.bat`) | Windows setup with MSVC/MinGW support |
-| **Python (Pygame)** | Graph window (`graph_window.py`) | Real-time force-directed graph with physics engine |
+
+## Installation
+
+### Linux/macOS/WSL
+
+```bash
+git clone https://github.com/Chintanpatel24/grudarin.git
+cd grudarin
+chmod +x install.sh
+sudo ./install.sh
+```
+
+### Windows
+
+```text
+1. Install Python 3.8+
+2. Install Npcap (WinPcap compatibility mode)
+3. Open CMD as Administrator
+4. cd grudarin
+5. install.bat
+```
+
+### Manual (any OS)
+
+```bash
+pip install scapy pygame
+g++ -std=c++17 -O2 -Wall -pthread -o bin/grudarin_scanner scanner/scanner.cpp -lpthread
+cd netprobe && go build -o ../bin/grudarin_netprobe netprobe.go && cd ..
+```
+
+
+## Usage
+
+```bash
+# interactive mode
+sudo grudarin
+
+# list interfaces and wifi
+sudo grudarin --list
+
+# live network scan (graph GUI)
+sudo grudarin --scan wlan0
+
+# headless network scan
+sudo grudarin --scan eth0 --no-graph -d 120
+
+# site/domain scan (live graph entities)
+grudarin --scan-site example.com
+
+# compatibility shorthand also works
+grudarin --scan -site tesla.com
+```
+
+## Built-in Graph Controls
+
+- Left click node: select and inspect full details
+- Left drag node: move node
+- Left drag background: pan graph
+- Mouse wheel: zoom in/out
+- Scan Selected Node: targeted node scan
+- Scan All Visible Nodes: bulk node scan
+- Ctrl+C or close window: stop scan
+
+## Reports and Output
+
+Each scan session writes output to a timestamped folder under `grudarin_output/`:
+
+- `session_report.md` (human-readable report)
+- `session_data.json` (machine-readable report)
+- `packets.log` (capture/recon event stream)
+
+When scan is closed, Grudarin prints the session output path in terminal.
+
+## Security Rules
+
+Custom rules can be added in:
+- `lua_rules/security_rules.lua`
+
 
 ## Features
 
@@ -41,35 +143,6 @@ Markdown with security findings highlighted in red bold text.
 - **Markdown reports** with security findings in red bold HTML at the end
 - **JSON data export** for machine processing
 - **Zero tracking, zero telemetry** - completely offline and private
-
-## Installation
-
-### Linux / macOS / WSL
-
-```bash
-git clone https://github.com/Chintanpatel24/grudarin.git
-cd grudarin
-chmod +x install.sh
-sudo ./install.sh
-```
-
-### Windows
-
-```
-1. Install Python 3.8+ from python.org (check "Add to PATH")
-2. Install Npcap from nmap.org/npcap (check "WinPcap compatible")
-3. Open Command Prompt as Administrator
-4. cd grudarin
-5. install.bat
-```
-
-### Manual (any OS)
-
-```bash
-pip install scapy pygame
-g++ -std=c++17 -O2 -Wall -pthread -o bin/grudarin_scanner scanner/scanner.cpp -lpthread
-cd netprobe && go build -o ../bin/grudarin_netprobe netprobe.go && cd ..
-```
 
 ## Workflow
 
@@ -143,16 +216,7 @@ grudarin --help
 | `Tab` | Toggle protocol stats panel |
 | `Q` / `Esc` | Quit and save report |
 
-## Output Files
 
-```
-grudarin_output/
-  grudarin_home_network_20240101_120000/
-    session_report.md       # Full report, security findings in RED at bottom
-    session_data.json       # Complete machine-readable data
-    packets.log             # Raw packet capture log
-    graph_snapshot_1.png    # Graph screenshots
-```
 
 ## Security Rules
 
@@ -173,62 +237,6 @@ The tool checks for these categories of issues:
 | Unknown Devices | MEDIUM | Unidentified devices on network |
 | Excessive Ports | HIGH | Devices with too many open ports |
 
-### Custom Rules
-
-Add rules in `lua_rules/security_rules.lua`:
-
-```lua
-rules.my_rule = function(data)
-    local ports = data.devices["some_device"].open_ports
-    if contains(ports, 4444) then
-        add_finding("critical", "Backdoor Detected", "Port 4444 open", "192.168.1.5", "Investigate now")
-    end
-end
-```
-
-## Management Scripts
-
-```bash
-# Install
-sudo ./install.sh       # Linux/macOS
-install.bat             # Windows (Run as Admin)
-
-# Update (pulls from git, recompiles everything)
-sudo ./update.sh
-
-# Uninstall (removes binaries, keeps your reports)
-sudo ./uninstall.sh
-```
-
-## Architecture
-
-```
-grudarin/
-  install.sh              Bash installer (apt/dnf/pacman/brew/apk)
-  install.bat             Windows batch installer
-  uninstall.sh            Clean removal script
-  update.sh               Git pull + recompile updater
-  grudarin.sh             Runtime launcher (auto-created)
-  requirements.txt        Python: scapy, pygame
-  setup.py                pip package configuration
-  scanner/
-    scanner.cpp           C++ multi-threaded TCP port scanner (24KB)
-  netprobe/
-    netprobe.go           Go concurrent network host probe
-  lua_rules/
-    security_rules.lua    Lua security rules engine (12 rules)
-  bin/                    Compiled binaries (auto-created)
-    grudarin_scanner      C++ binary
-    grudarin_netprobe     Go binary
-  grudarin/               Python package
-    __init__.py           Package metadata
-    __main__.py           CLI entry point, workflow orchestration
-    capture.py            Scapy packet capture engine
-    network_model.py      Thread-safe network topology data model
-    graph_window.py       Pygame force-directed graph (real-time)
-    notes.py              Markdown + JSON report generator
-    vuln_analyzer.py      Vulnerability analysis orchestrator
-```
 
 ## Privacy
 
@@ -240,8 +248,14 @@ grudarin/
 - All processing is local
 - Open source - audit every line
 
+
 ## Disclaimer
 
-- This tool is for authorized network monitoring and security assessment only.
-Ensure you have proper authorization before monitoring any network.
-Unauthorized network monitoring may violate local laws.
+Use only on networks and assets you are authorized to test.
+
+
+- **Network Monitor + Vulnerability Scanner + Force-Directed Graph**
+- **Grudarin** is an open-source cybersecurity tool that monitors networks in real time,
+discovers devices, scans for vulnerabilities and misconfigurations, visualizes the
+network topology as a live force-directed graph, and saves detailed reports in
+Markdown with security findings highlighted in red bold text.
