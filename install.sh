@@ -17,7 +17,8 @@ SCANNER_SRC="$GRUDARIN_DIR/scanner"
 NETPROBE_SRC="$GRUDARIN_DIR/netprobe"
 BIN_DIR="$GRUDARIN_DIR/bin"
 LUA_RULES="$GRUDARIN_DIR/lua_rules"
-VENV_DIR="$GRUDARIN_DIR/.venv"
+VENV_DIR="$GRUDARIN_DIR/gruenv"
+LEGACY_VENV_DIR="$GRUDARIN_DIR/.venv"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -132,17 +133,31 @@ fi
 
 # Python env
 step "Setting up Python environment"
-python3 -m venv "$VENV_DIR" 2>/dev/null || { warn "venv failed, using system Python"; VENV_DIR=""; }
+if [ ! -d "$VENV_DIR" ]; then
+    python3 -m venv "$VENV_DIR" 2>/dev/null || { warn "Failed to create gruenv, using system Python"; VENV_DIR=""; }
+fi
 
 if [ -n "$VENV_DIR" ] && [ -f "$VENV_DIR/bin/pip" ]; then
     PIP="$VENV_DIR/bin/pip"
+elif [ -f "$LEGACY_VENV_DIR/bin/pip" ]; then
+    warn "Using legacy .venv (gruenv not available)"
+    VENV_DIR="$LEGACY_VENV_DIR"
+    PIP="$LEGACY_VENV_DIR/bin/pip"
 else
     PIP="pip3"
 fi
 
-$PIP install --upgrade pip --quiet 2>/dev/null
-$PIP install -r "$GRUDARIN_DIR/requirements.txt" --quiet 2>/dev/null
-$PIP install -e "$GRUDARIN_DIR" --quiet 2>/dev/null || true
+if ! $PIP install --upgrade pip --quiet; then
+    fail "Failed to upgrade pip"
+    exit 1
+fi
+if ! $PIP install -r "$GRUDARIN_DIR/requirements.txt" --quiet; then
+    fail "Failed to install Python requirements"
+    exit 1
+fi
+if ! $PIP install -e "$GRUDARIN_DIR" --quiet; then
+    warn "Editable install failed, continuing with direct module execution"
+fi
 info "Python dependencies installed"
 
 # Lua check
@@ -159,9 +174,43 @@ fi
 step "Creating launcher"
 cat > "$GRUDARIN_DIR/grudarin.sh" << 'LAUNCHER'
 #!/usr/bin/env bash
-DIR="$(cd "$(dirname "$0")" && pwd)"
-if [ -f "$DIR/.venv/bin/python" ]; then PY="$DIR/.venv/bin/python"; else PY="python3"; fi
-if [ "$EUID" -ne 0 ]; then exec sudo "$PY" -m grudarin "$@"; else exec "$PY" -m grudarin "$@"; fi
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do
+    DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+    TARGET="$(readlink "$SOURCE")"
+    if [ "${TARGET#/}" = "$TARGET" ]; then
+        SOURCE="$DIR/$TARGET"
+    else
+        SOURCE="$TARGET"
+    fi
+done
+DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+
+if [ -f "$DIR/gruenv/bin/python" ]; then
+    GRUENV="$DIR/gruenv"
+elif [ -f "$DIR/.venv/bin/python" ]; then
+    GRUENV="$DIR/.venv"
+else
+    GRUENV=""
+fi
+
+if [ -n "$GRUENV" ]; then
+    # Process-scoped activation: environment exists only while grudarin runs.
+    export VIRTUAL_ENV="$GRUENV"
+    export PATH="$GRUENV/bin:$PATH"
+    export PYTHONNOUSERSITE=1
+    PY="$GRUENV/bin/python"
+else
+    PY="python3"
+fi
+
+RUN_CODE="import runpy, sys; sys.path.insert(0, '$DIR'); sys.argv[0] = 'grudarin'; runpy.run_module('grudarin', run_name='__main__')"
+
+if [ "$EUID" -ne 0 ]; then
+    exec sudo "$PY" -c "$RUN_CODE" "$@"
+else
+    exec "$PY" -c "$RUN_CODE" "$@"
+fi
 LAUNCHER
 chmod +x "$GRUDARIN_DIR/grudarin.sh"
 info "Launcher: $GRUDARIN_DIR/grudarin.sh"
@@ -178,6 +227,7 @@ command -v python3 &>/dev/null && info "Python3: $(python3 --version)" || { fail
 [ -x "$BIN_DIR/grudarin_scanner" ] && info "C++ Scanner: ready" || warn "C++ Scanner: not available"
 [ -x "$BIN_DIR/grudarin_netprobe" ] && info "Go Netprobe: ready" || warn "Go Netprobe: not available"
 (command -v lua5.4 || command -v lua) &>/dev/null && info "Lua: ready" || warn "Lua: not available"
+[ -x "$GRUDARIN_DIR/check.sh" ] && info "Health Check: ready (./check.sh)" || warn "Health Check: missing"
 
 echo ""
 if [ $errs -eq 0 ]; then
@@ -190,5 +240,6 @@ echo "  Usage:"
 echo "    sudo grudarin --list"
 echo "    sudo grudarin --scan wlan0"
 echo "    sudo grudarin --scan eth0 -o ~/reports --name home_scan"
+echo "    ./check.sh"
 echo "    grudarin --help"
 echo ""
