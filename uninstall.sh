@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ================================================================
 #                    G R U D A R I N
-#                   Uninstaller
+#                      Uninstaller
 # ================================================================
 
 set -euo pipefail
@@ -27,7 +27,7 @@ echo -e "  ${YELLOW}This will remove Grudarin from your system.${NC}"
 echo ""
 echo "  The following will be removed:"
 echo "    - Compiled binaries (bin/)"
-echo "    - Python virtual environment (.venv/)"
+echo "    - Python virtual environment (gruenv/, .venv/)"
 echo "    - System symlink (/usr/local/bin/grudarin)"
 echo "    - Launcher script (grudarin.sh)"
 echo "    - Python package registration"
@@ -51,7 +51,11 @@ if [ -d "$GRUDARIN_DIR/bin" ]; then
     echo -e "  ${GREEN}[ok]${NC}    Removed bin/"
 fi
 
-# Remove venv
+# Remove venvs
+if [ -d "$GRUDARIN_DIR/gruenv" ]; then
+    rm -rf "$GRUDARIN_DIR/gruenv"
+    echo -e "  ${GREEN}[ok]${NC}    Removed gruenv/"
+fi
 if [ -d "$GRUDARIN_DIR/.venv" ]; then
     rm -rf "$GRUDARIN_DIR/.venv"
     echo -e "  ${GREEN}[ok]${NC}    Removed .venv/"
