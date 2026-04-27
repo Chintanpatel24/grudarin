@@ -103,25 +103,9 @@ cd netprobe && go build -o ../bin/grudarin_netprobe netprobe.go && cd ..
 - **JSON data export** for machine processing
 - **Zero tracking, zero telemetry** - completely offline and private
 
-
-## Privacy
-
-- No telemetry
-- No tracking
-- No phone-home
-- No cloud dependencies
-- No external API calls
-- All processing is local
-- Open source - audit every line
-
-
-## Disclaimer
-
-Use only on networks and assets you are authorized to test.
-
-
-- **Network Monitor + Vulnerability Scanner + Force-Directed Graph**
-- **Grudarin** is an open-source cybersecurity tool that monitors networks in real time,
-discovers devices, scans for vulnerabilities and misconfigurations, visualizes the
+> [!NOTE]
+>- **Network Monitor + Vulnerability Scanner + Force-Directed Graph**
+>- **Grudarin** is an open-source cybersecurity tool that monitors networks in real time,
+>discovers devices, scans for vulnerabilities and misconfigurations, visualizes the
 network topology as a live force-directed graph, and saves detailed reports in
 Markdown with security findings highlighted in red bold text.
