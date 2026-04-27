@@ -18,7 +18,8 @@ GRUDARIN_DIR="$(cd "$(dirname "$0")" && pwd)"
 SCANNER_SRC="$GRUDARIN_DIR/scanner"
 NETPROBE_SRC="$GRUDARIN_DIR/netprobe"
 SCANNER_BIN="$GRUDARIN_DIR/bin"
-VENV_DIR="$GRUDARIN_DIR/.venv"
+VENV_DIR="$GRUDARIN_DIR/gruenv"
+LEGACY_VENV_DIR="$GRUDARIN_DIR/.venv"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -143,13 +144,21 @@ echo -e "  ${CYAN}>> Updating Python dependencies${NC}"
 
 if [ -n "$VENV_DIR" ] && [ -f "$VENV_DIR/bin/pip" ]; then
     PIP="$VENV_DIR/bin/pip"
+elif [ -f "$LEGACY_VENV_DIR/bin/pip" ]; then
+    PIP="$LEGACY_VENV_DIR/bin/pip"
 else
     PIP="pip3"
 fi
 
-$PIP install --upgrade pip --quiet 2>/dev/null
-$PIP install -r "$GRUDARIN_DIR/requirements.txt" --quiet --upgrade 2>/dev/null
-$PIP install -e "$GRUDARIN_DIR" --quiet 2>/dev/null || true
+if ! $PIP install --upgrade pip --quiet; then
+    echo -e "  ${YELLOW}[warn]${NC}  pip upgrade failed"
+fi
+if ! $PIP install -r "$GRUDARIN_DIR/requirements.txt" --quiet --upgrade; then
+    echo -e "  ${YELLOW}[warn]${NC}  requirements update failed"
+fi
+if ! $PIP install -e "$GRUDARIN_DIR" --quiet; then
+    echo -e "  ${YELLOW}[warn]${NC}  editable install failed"
+fi
 echo -e "  ${GREEN}[ok]${NC}    Python dependencies updated"
 
 # ----------------------------------------------------------------
