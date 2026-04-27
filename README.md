@@ -12,6 +12,12 @@ Grudarin is a GPL-3.0 licensed network and site reconnaissance tool with:
 - built-in graph dashboard (native GUI)
 - markdown + JSON reporting
 
+## Example output
+
+<img width="1322" height="767" alt="gru2" src="https://github.com/user-attachments/assets/575d7720-6c31-4b84-bce4-ff4a6fb94adb" />
+<img width="1323" height="767" alt="gru1" src="https://github.com/user-attachments/assets/e150b919-bc5e-4e40-9d57-5504ca559eab" />
+
+
 ## Key Capabilities
 
 - Real-time LAN topology graph with smooth force simulation
