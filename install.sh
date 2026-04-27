@@ -1,30 +1,37 @@
-#!/usr/bin/env sh
-set -eu
+#!/bin/bash
+# grudarin installation helper
+# Run once to install Python dependencies.
 
-printf '[1/5] Creating virtual environment\n'
-python3 -m venv .venv
+set -e
 
-printf '[2/5] Activating environment\n'
-. .venv/bin/activate
+echo ""
+echo "grudarin - Network Intelligence Monitor"
+echo "Installation script"
+echo "---------------------------------------"
 
-printf '[3/5] Upgrading pip\n'
-python -m pip install --upgrade pip
+# Check Python version
+PYTHON=$(command -v python3 || command -v python)
+if [ -z "$PYTHON" ]; then
+    echo "ERROR: Python 3.10+ is required but not found."
+    exit 1
+fi
 
-printf '[4/5] Installing Grudarin in editable mode\n'
-python -m pip install -e .
+PY_VERSION=$($PYTHON -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+echo "Python: $PY_VERSION at $PYTHON"
 
-printf '[5/5] Creating launcher helper\n'
-cat > grudarin <<'EOF'
-#!/usr/bin/env sh
-set -eu
-SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-. "$SCRIPT_DIR/.venv/bin/activate"
-exec python -m grudarin_app.cli "$@"
-EOF
-chmod +x grudarin
+# Install deps
+echo ""
+echo "Installing Python dependencies..."
+$PYTHON -m pip install --upgrade pip --quiet
+$PYTHON -m pip install -r requirements.txt
 
-printf 'Installation complete\n'
-printf 'Run one of the following commands:\n'
-printf '  ./.venv/bin/grudarin --help\n'
-printf '  ./grudarin interfaces\n'
-printf '  ./grudarin scan\n'
+echo ""
+echo "Installation complete."
+echo ""
+echo "Usage:"
+echo "  sudo python3 grudarin.py --list-interfaces"
+echo "  sudo python3 grudarin.py -i eth0 -o ~/grudarin_sessions"
+echo ""
+echo "NOTE: Packet capture requires root/sudo on Linux and macOS."
+echo "      On Windows, install Npcap and run as Administrator."
+echo ""
