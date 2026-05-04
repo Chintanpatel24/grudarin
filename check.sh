@@ -84,7 +84,7 @@ for cmd in python3 pip3; do
 done
 
 # Optional but recommended tools
-for cmd in g++ go lua5.4 lua iw nmcli; do
+for cmd in g++ go cargo lua5.4 lua iw nmcli; do
     if command -v "$cmd" >/dev/null 2>&1; then
         ok "$cmd found"
     else
@@ -127,6 +127,13 @@ if [ -x "$BIN_DIR/grudarin_netprobe" ]; then
     ok "Go netprobe binary present"
 else
     warn "Missing Go netprobe binary: $BIN_DIR/grudarin_netprobe"
+    WARN_COUNT=$((WARN_COUNT + 1))
+fi
+
+if [ -x "$BIN_DIR/grudarin_probe" ]; then
+    ok "Rust probe helper binary present"
+else
+    warn "Missing Rust probe helper binary: $BIN_DIR/grudarin_probe"
     WARN_COUNT=$((WARN_COUNT + 1))
 fi
 
