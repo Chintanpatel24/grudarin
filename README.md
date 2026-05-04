@@ -8,6 +8,8 @@
 
 </div>
 
+---
+
 # Grudarin
 >- Grudarin is a network monitoring tool that captures and analyzes real-time traffic, showing active connections, IP addresses, ports, and protocols. It helps detect anomalies, monitor bandwidth usage, and identify devices on a network. The tool supports deep inspection with features like promiscuous mode for comprehensive analysis. While its real-time visibility is strong, it requires longer scans for accurate threat detection. 
 - real-time packet monitoring
