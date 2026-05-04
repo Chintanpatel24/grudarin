@@ -1,5 +1,5 @@
 <div align=center>
-<img width="300" alt="grudarin-logo" src="https://github.com/user-attachments/assets/74cbf839-ab09-47bb-837c-312ee69bb053" />
+<img width="300" alt="grudarin-logo" src="public/images/grudarin.png" />
 
 ![Grudarin](https://img.shields.io/badge/version-1.0.0-amber?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
