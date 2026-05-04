@@ -170,7 +170,7 @@ def list_interfaces():
 def parse_args():
     """Parse command line arguments."""
     argv = list(sys.argv[1:])
-    # Support user shorthand: grudarin --scan -site example.com
+    # Support user shorthand: grudarin --scan -site example.invalid
     for idx, tok in enumerate(argv):
         if tok == "--scan" and idx + 2 < len(argv) and argv[idx + 1] == "-site":
             domain = argv[idx + 2]
@@ -192,7 +192,7 @@ WORKFLOW:
 
 EXAMPLES:
   sudo grudarin --scan wlan0 --name my_home_scan
-    grudarin --scan-site tesla.com
+    grudarin --scan-site example.invalid
   sudo grudarin --scan eth0 -o /tmp/reports --ports 1-65535
   sudo grudarin --scan wlan0 --no-graph --duration 120
   sudo grudarin --scan eth0 --targets 192.168.1.1,192.168.1.100
@@ -216,7 +216,7 @@ GRAPH CONTROLS:
     parser.add_argument(
         "--scan-site", "--site", "-site", metavar="DOMAIN",
         type=str, default=None,
-        help="Scan a website/domain (e.g., tesla.com) and build live recon graph"
+        help="Scan a website/domain (e.g., example.invalid) and build live recon graph"
     )
     parser.add_argument(
         "--list", "-l", action="store_true",
@@ -267,7 +267,7 @@ def print_banner():
     ================================================================
                           G R U D A R I N
               Network Monitor + Vulnerability Scanner
-               + Built-in Graph Viewer  v1.0.0
+               + Built-in Graph Viewer  v2.0.0
     ================================================================
     """)
 
@@ -674,8 +674,44 @@ def run_site_scan(domain, output_dir, scan_name, args):
     stop_event.set()
     scan_thread.join(timeout=5)
 
+    findings_data = []
+    if not args.no_scan:
+        print("  [analysis] Running site vulnerability analysis...")
+        vuln_analyzer = VulnAnalyzer(network_model=model, session_dir=session_dir)
+        findings = vuln_analyzer.analyze(scan_targets=None, port_range=args.ports)
+        findings_data = vuln_analyzer.get_findings_dicts()
+        if findings:
+            print()
+            print("  " + "=" * 60)
+            print("  SITE SECURITY FINDINGS")
+            print("  " + "=" * 60)
+            for finding in findings:
+                sev = finding.severity.upper()
+                print(f"  [{sev:<8}] {finding.title}")
+                print(f"               {finding.description[:80]}")
+                if finding.affected:
+                    print(f"               Affected: {finding.affected}")
+                print()
+    else:
+        print("  [skip] Vulnerability scan disabled")
+
+    site_data = model.get_full_data()
+    for key, dev in site_data.get("devices", {}).items():
+        if dev.get("node_type") != "VULNERABILITY":
+            continue
+        findings_data.append({
+            "severity": (dev.get("severity") or "info").lower(),
+            "title": dev.get("label", dev.get("hostname", key)),
+            "description": dev.get("description", dev.get("label", key)),
+            "affected": dev.get("ip", ""),
+            "recommendation": dev.get("recommendation", "Review the exposed endpoint and restrict access."),
+        })
+
+    severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+    findings_data.sort(key=lambda item: severity_order.get(str(item.get("severity", "info")).lower(), 99))
+
     print("\n  [report] Writing final reports...")
-    notes_writer.write_final_report(model, findings=[])
+    notes_writer.write_final_report(model, findings_data)
 
     stats = model.get_stats()
     print(f"\n  Reports saved to: {session_dir}")
