@@ -1,8 +1,7 @@
 <div align=center>
 <img width="300" alt="grudarin-logo" src="https://github.com/user-attachments/assets/74cbf839-ab09-47bb-837c-312ee69bb053" />
 
-  
-![Grudarin](https://img.shields.io/badge/version-1.0.0-amber?style=flat-square)
+![Grudarin](https://img.shields.io/badge/version-2.0.0-amber?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-blue?style=flat-square)
 
@@ -19,7 +18,7 @@
 
 ## Example output
 > [!important]
-> This tool is under development !! 
+> This tool is under active development.
   
 <img width="1322" height="767" alt="gru2" src="https://github.com/user-attachments/assets/575d7720-6c31-4b84-bce4-ff4a6fb94adb" />
 <img width="1323" height="767" alt="gru1" src="https://github.com/user-attachments/assets/e150b919-bc5e-4e40-9d57-5504ca559eab" />
