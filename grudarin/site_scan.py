@@ -5,8 +5,11 @@ Builds a graph model of website assets and findings in real time.
 
 import ipaddress
 import json
+import os
 import re
 import socket
+import ssl
+import subprocess
 import threading
 import time
 import urllib.error
@@ -104,6 +107,9 @@ class SiteGraphModel:
                     "vendor": attrs.get("vendor", ""),
                     "hostname": attrs.get("hostname", value if et == "DNS_NAME" else ""),
                     "os_hint": attrs.get("os_hint", ""),
+                    "severity": attrs.get("severity", ""),
+                    "description": attrs.get("description", ""),
+                    "recommendation": attrs.get("recommendation", ""),
                     "is_gateway": False,
                     "is_broadcast": et == "VULNERABILITY",
                     "packets_sent": int(ent.get("hits", 0)),
@@ -153,6 +159,9 @@ class SiteGraphModel:
                     "hostname": attrs.get("hostname", val if et == "DNS_NAME" else ""),
                     "vendor": attrs.get("vendor", ""),
                     "os_hint": attrs.get("os_hint", ""),
+                    "severity": attrs.get("severity", ""),
+                    "description": attrs.get("description", ""),
+                    "recommendation": attrs.get("recommendation", ""),
                     "open_ports": list(attrs.get("open_ports", [])),
                     "protocols": [et],
                     "first_seen": datetime.fromtimestamp(ent["first_seen"]).isoformat(),
@@ -228,6 +237,75 @@ class SiteScanner:
         self.seen_hosts = set()
         self.seen_ips = set()
         self.seen_urls = set()
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        self.rust_probe_path = os.path.join(base_dir, "bin", "grudarin_probe")
+        self.sensitive_paths = [
+            "/.git/HEAD",
+            "/.env",
+            "/.well-known/security.txt",
+            "/robots.txt",
+            "/sitemap.xml",
+            "/phpinfo.php",
+            "/server-status",
+            "/wp-login.php",
+            "/admin/",
+            "/backup.zip",
+        ]
+
+    def _record_vulnerability(self, source_key, title, description, severity="medium", recommendation=""):
+        vuln_key = self.model.add_entity(
+            "VULNERABILITY",
+            title,
+            {
+                "severity": severity,
+                "description": description,
+                "recommendation": recommendation,
+            },
+        )
+        self.model.add_connection(source_key, vuln_key, f"vuln_{severity}")
+        return vuln_key
+
+    def _probe_severity_for_path(self, path):
+        path = path.lower()
+        if path in {"/.git/HEAD", "/.env", "/phpinfo.php", "/server-status", "/backup.zip"}:
+            return "high"
+        if path in {"/wp-login.php", "/admin/", "/admin"}:
+            return "low"
+        return "medium"
+
+    def _probe_recommendation_for_path(self, path):
+        if path in {"/.git/HEAD", "/.env", "/phpinfo.php", "/server-status", "/backup.zip"}:
+            return "Remove the exposed asset or restrict it behind authentication."
+        if path in {"/wp-login.php", "/admin/", "/admin"}:
+            return "Restrict administrative paths to trusted networks."
+        return "Review the endpoint and restrict access if it should not be public."
+
+    def _run_rust_probe(self, base_url):
+        if not (os.path.isfile(self.rust_probe_path) and os.access(self.rust_probe_path, os.X_OK)):
+            return None
+
+        cmd = [
+            self.rust_probe_path,
+            "--base",
+            base_url,
+            "--paths",
+            ",".join(self.sensitive_paths),
+            "--timeout-ms",
+            "6500",
+        ]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        except Exception:
+            return None
+
+        if result.returncode != 0 or not result.stdout.strip():
+            return None
+
+        try:
+            return json.loads(result.stdout)
+        except Exception:
+            return None
 
     def run(self):
         base = self.domain
@@ -333,6 +411,7 @@ class SiteScanner:
             self.model.add_entity("IP_ADDRESS", ip, {"ip": ip, "open_ports": sorted(open_ports)})
 
     def _analyze_url(self, url, dns_key):
+        parsed = urllib.parse.urlparse(url)
         req = urllib.request.Request(
             url,
             headers={
@@ -344,12 +423,14 @@ class SiteScanner:
         body = b""
         headers = {}
         status = 0
+        final_url = url
 
         try:
             with urllib.request.urlopen(req, timeout=6) as resp:
                 status = getattr(resp, "status", 200)
                 headers = dict(resp.headers.items())
                 body = resp.read(250000)
+                final_url = getattr(resp, "url", url)
         except urllib.error.HTTPError as e:
             status = e.code
             headers = dict(getattr(e, "headers", {}).items()) if getattr(e, "headers", None) else {}
@@ -363,6 +444,9 @@ class SiteScanner:
         text = body.decode("utf-8", errors="ignore")
         url_key = self.model.add_entity("URL", url, {"bytes": len(body), "status": status})
         self.model.add_connection(dns_key, url_key, "url", byte_count=len(body))
+        if final_url and final_url != url:
+            final_key = self.model.add_entity("URL", final_url, {"bytes": len(body), "status": status})
+            self.model.add_connection(url_key, final_key, "redirects_to")
 
         # TECHNOLOGY from headers/body
         techs = set()
@@ -376,6 +460,64 @@ class SiteScanner:
         for t in sorted(techs):
             t_key = self.model.add_entity("TECHNOLOGY", t)
             self.model.add_connection(url_key, t_key, "technology")
+
+        # Security header and cookie hygiene checks.
+        headers_lower = {k.lower(): v for k, v in headers.items()}
+        missing_headers = []
+        for header_name, label in (
+            ("content-security-policy", "CSP missing"),
+            ("x-frame-options", "X-Frame-Options missing"),
+            ("x-content-type-options", "X-Content-Type-Options missing"),
+            ("referrer-policy", "Referrer-Policy missing"),
+            ("permissions-policy", "Permissions-Policy missing"),
+        ):
+            if header_name not in headers_lower:
+                missing_headers.append(label)
+
+        if parsed.scheme == "https" and "strict-transport-security" not in headers_lower:
+            missing_headers.append("HSTS missing")
+
+        if missing_headers:
+            severity = "medium" if len(missing_headers) >= 3 else "low"
+            self._record_vulnerability(
+                url_key,
+                "Weak HTTP Security Headers",
+                f"Missing headers: {', '.join(missing_headers)}",
+                severity,
+                "Set security headers at the application or reverse proxy layer.",
+            )
+
+        cors_origin = headers_lower.get("access-control-allow-origin", "")
+        cors_creds = headers_lower.get("access-control-allow-credentials", "").lower()
+        if cors_origin == "*" and cors_creds == "true":
+            self._record_vulnerability(
+                url_key,
+                "Unsafe CORS Configuration",
+                "Access-Control-Allow-Origin is '*' while credentials are enabled.",
+                "high",
+                "Restrict allowed origins and avoid credentialed wildcard CORS.",
+            )
+
+        for cookie in headers.get("Set-Cookie", "").split("\n"):
+            cookie_lower = cookie.lower()
+            if not cookie.strip():
+                continue
+            if ("session" in cookie_lower or "auth" in cookie_lower) and "httponly" not in cookie_lower:
+                self._record_vulnerability(
+                    url_key,
+                    "Session Cookie Missing HttpOnly",
+                    cookie.strip()[:240],
+                    "medium",
+                    "Mark session cookies as HttpOnly.",
+                )
+            if parsed.scheme == "https" and ("session" in cookie_lower or "auth" in cookie_lower) and "secure" not in cookie_lower:
+                self._record_vulnerability(
+                    url_key,
+                    "Session Cookie Missing Secure Flag",
+                    cookie.strip()[:240],
+                    "medium",
+                    "Mark authentication cookies as Secure over HTTPS.",
+                )
 
         # EMAIL_ADDRESS
         for em in set(re.findall(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", text)):
@@ -417,9 +559,125 @@ class SiteScanner:
         if "server: apache/2.2" in content_for_tech.lower() or "server: nginx/1.0" in content_for_tech.lower():
             vuln_hits.append(("high", f"Outdated web server version exposed at {url}"))
 
+        if re.search(r"<input[^>]+type=['\"]?password", text, flags=re.I) and parsed.scheme != "https":
+            vuln_hits.append(("critical", f"Password form submitted over HTTP at {url}"))
+
+        if any(token in text.lower() for token in ["phpinfo()", "php version", "xdebug profiler", "debug toolbar"]):
+            vuln_hits.append(("medium", f"Debug content exposed at {url}"))
+
+        if parsed.scheme == "https" and parsed.hostname:
+            self._inspect_tls(parsed.hostname, url_key)
+
+        self._probe_common_paths(parsed, url_key)
+
         for sev, desc in vuln_hits:
-            v_key = self.model.add_entity("VULNERABILITY", desc)
-            self.model.add_connection(url_key, v_key, f"vuln_{sev}")
+            self._record_vulnerability(url_key, desc, desc, sev)
+
+    def _inspect_tls(self, host, url_key):
+        if not host:
+            return
+        try:
+            context = ssl.create_default_context()
+            with socket.create_connection((host, 443), timeout=4) as sock:
+                with context.wrap_socket(sock, server_hostname=host) as tls_sock:
+                    cert = tls_sock.getpeercert()
+        except ssl.SSLCertVerificationError as exc:
+            self._record_vulnerability(
+                url_key,
+                "TLS Certificate Validation Failed",
+                str(exc),
+                "high",
+                "Install a valid certificate chain trusted by clients.",
+            )
+            return
+        except Exception:
+            return
+
+        not_after = cert.get("notAfter") if isinstance(cert, dict) else None
+        if not_after:
+            try:
+                expires = time.mktime(time.strptime(not_after, "%b %d %H:%M:%S %Y %Z"))
+                days_left = (expires - time.time()) / 86400.0
+                if days_left < 0:
+                    self._record_vulnerability(
+                        url_key,
+                        "TLS Certificate Expired",
+                        f"Certificate expired {abs(days_left):.1f} days ago.",
+                        "high",
+                        "Renew the certificate immediately.",
+                    )
+                elif days_left < 30:
+                    self._record_vulnerability(
+                        url_key,
+                        "TLS Certificate Expiring Soon",
+                        f"Certificate expires in {days_left:.1f} days.",
+                        "medium",
+                        "Renew the certificate before expiry.",
+                    )
+            except Exception:
+                pass
+
+    def _probe_common_paths(self, parsed, url_key):
+        if not parsed.scheme or not parsed.netloc:
+            return
+
+        base = f"{parsed.scheme}://{parsed.netloc}"
+        rust_data = self._run_rust_probe(base)
+        if rust_data:
+            for probe in rust_data.get("probes", []):
+                path = probe.get("path", "")
+                status = int(probe.get("status", 0) or 0)
+                probe_url = probe.get("url") or urllib.parse.urljoin(base, path)
+                if status in (200, 206):
+                    path_key = self.model.add_entity("URL", probe_url, {"status": status, "bytes": 0})
+                    self.model.add_connection(url_key, path_key, "exposes_path")
+                    self._record_vulnerability(
+                        url_key,
+                        f"Sensitive Path Exposed: {path}",
+                        f"Rust probe confirmed HTTP {status} response from {probe_url}",
+                        self._probe_severity_for_path(path),
+                        self._probe_recommendation_for_path(path),
+                    )
+            return
+
+        sensitive_set = {"/.git/HEAD", "/.env", "/phpinfo.php", "/server-status", "/backup.zip"}
+        for path in self.sensitive_paths:
+            if self.stop_event.is_set():
+                return
+            probe_url = urllib.parse.urljoin(base, path)
+            req = urllib.request.Request(
+                probe_url,
+                headers={"User-Agent": "grudarin-site-scan/1.0"},
+                method="HEAD",
+            )
+            status = 0
+            try:
+                with urllib.request.urlopen(req, timeout=4) as resp:
+                    status = getattr(resp, "status", 200)
+            except urllib.error.HTTPError as e:
+                status = e.code
+            except Exception:
+                continue
+
+            if status in (200, 206):
+                path_key = self.model.add_entity("URL", probe_url, {"status": status, "bytes": 0})
+                self.model.add_connection(url_key, path_key, "exposes_path")
+                if path in sensitive_set:
+                    self._record_vulnerability(
+                        url_key,
+                        f"Sensitive Path Exposed: {path}",
+                        f"Confirmed HTTP {status} response from {probe_url}",
+                        "high",
+                        "Remove the file or restrict access behind authentication.",
+                    )
+                elif path in {"/wp-login.php", "/admin/"}:
+                    self._record_vulnerability(
+                        url_key,
+                        f"Administrative Endpoint Discovered: {path}",
+                        f"Endpoint responds with HTTP {status} at {probe_url}",
+                        "low",
+                        "Restrict administrative paths to trusted networks.",
+                    )
 
     def _crtsh_subdomains(self, domain):
         """Best-effort crt.sh lookup for subdomains."""
