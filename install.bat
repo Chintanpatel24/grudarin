@@ -15,7 +15,7 @@ setlocal enabledelayedexpansion
 echo.
 echo     ================================================================
 echo                           G R U D A R I N
-echo                     Windows Installer v1.0.0
+echo                     Windows Installer v2.0.0
 echo     ================================================================
 echo.
 
@@ -132,7 +132,30 @@ if %errorLevel% equ 0 (
 )
 
 REM ----------------------------------------------------------------
-REM Step 6: Check Npcap/WinPcap
+REM Step 6: Check for Rust compiler
+REM ----------------------------------------------------------------
+echo   [step] Checking Rust compiler...
+where cargo >nul 2>&1
+if %errorLevel% equ 0 (
+    echo   [ok]   Cargo found
+    echo   [step] Building Rust probe helper...
+    if not exist "bin" mkdir bin
+    cargo build --release --manifest-path rust_tools\grudarin_probe\Cargo.toml >nul 2>&1
+    if exist "rust_tools\grudarin_probe\target\release\grudarin_probe.exe" (
+        copy /Y "rust_tools\grudarin_probe\target\release\grudarin_probe.exe" "bin\grudarin_probe.exe" >nul
+        echo   [ok]   Rust probe compiled: bin\grudarin_probe.exe
+    ) else if exist "rust_tools\grudarin_probe\target\release\grudarin_probe" (
+        copy /Y "rust_tools\grudarin_probe\target\release\grudarin_probe" "bin\grudarin_probe.exe" >nul
+        echo   [ok]   Rust probe compiled: bin\grudarin_probe.exe
+    ) else (
+        echo   [warn] Rust build failed. Using Python fallback.
+    )
+) else (
+    echo   [warn] Cargo not found. Rust probe helper will be skipped.
+)
+
+REM ----------------------------------------------------------------
+REM Step 7: Check Npcap/WinPcap
 REM ----------------------------------------------------------------
 echo   [step] Checking packet capture driver...
 if exist "C:\Windows\System32\Npcap" (
@@ -146,7 +169,7 @@ if exist "C:\Windows\System32\Npcap" (
 )
 
 REM ----------------------------------------------------------------
-REM Step 7: Create launcher batch file
+REM Step 8: Create launcher batch file
 REM ----------------------------------------------------------------
 echo   [step] Creating launcher...
 (
@@ -157,7 +180,7 @@ echo %PYTHON% -m grudarin %%*
 echo   [ok]   Launcher created: grudarin.bat
 
 REM ----------------------------------------------------------------
-REM Step 8: Install package
+REM Step 9: Install package
 REM ----------------------------------------------------------------
 echo   [step] Installing Grudarin package...
 %PYTHON% -m pip install -e . --quiet 2>nul
