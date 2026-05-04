@@ -741,7 +741,7 @@ class GraphWindow:
                 time.sleep(0.5)
             return
 
-        self.root.title("Grudarin v1.0.0 - Built-in Graph View")
+        self.root.title("Grudarin v2.0.0 - Built-in Graph View")
         self.root.geometry(f"{self.w}x{self.h}")
         self.root.configure(bg=self.BG)
 
