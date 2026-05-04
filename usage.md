@@ -56,10 +56,7 @@ sudo grudarin --scan wlan0
 sudo grudarin --scan eth0 --no-graph -d 120
 
 # site/domain scan (live graph entities)
-grudarin --scan-site example.com
-
-# compatibility shorthand also works
-grudarin --scan -site tesla.com
+grudarin --scan-site example.invalid
 ```
 
 ## Built-in Graph Controls
