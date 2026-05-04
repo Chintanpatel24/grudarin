@@ -138,7 +138,21 @@ else
 fi
 
 # ----------------------------------------------------------------
-# Step 7: Update Python dependencies
+# Step 7: Rebuild Rust probe helper
+# ----------------------------------------------------------------
+echo -e "  ${CYAN}>> Rebuilding Rust probe helper${NC}"
+
+if command -v cargo &>/dev/null; then
+    cargo build --release --manifest-path "$GRUDARIN_DIR/rust_tools/grudarin_probe/Cargo.toml" 2>&1 && \
+        cp "$GRUDARIN_DIR/rust_tools/grudarin_probe/target/release/grudarin_probe" "$SCANNER_BIN/grudarin_probe" && \
+        echo -e "  ${GREEN}[ok]${NC}    Rust probe compiled" || \
+        echo -e "  ${YELLOW}[warn]${NC}  Rust probe build failed"
+else
+    echo -e "  ${YELLOW}[skip]${NC}  Cargo not found"
+fi
+
+# ----------------------------------------------------------------
+# Step 8: Update Python dependencies
 # ----------------------------------------------------------------
 echo -e "  ${CYAN}>> Updating Python dependencies${NC}"
 
