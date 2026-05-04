@@ -36,7 +36,7 @@ echo ""
 echo -e "${CYAN}${BOLD}"
 echo "    ================================================================"
 echo "                          G R U D A R I N"
-echo "                        Installer v1.0.0"
+echo "                        Installer v2.0.0"
 echo "    ================================================================"
 echo -e "${NC}"
 
@@ -129,6 +129,17 @@ if command -v go &>/dev/null; then
     cd "$GRUDARIN_DIR"
 else
     warn "Go not found. Netprobe will use Python fallback."
+fi
+
+# Build Rust probe helper
+step "Building Rust site probe helper"
+if command -v cargo &>/dev/null; then
+    cargo build --release --manifest-path "$GRUDARIN_DIR/rust_tools/grudarin_probe/Cargo.toml" 2>&1 && \
+        cp "$GRUDARIN_DIR/rust_tools/grudarin_probe/target/release/grudarin_probe" "$BIN_DIR/grudarin_probe" && \
+        info "Rust probe compiled: $BIN_DIR/grudarin_probe" || \
+        warn "Rust build failed"
+else
+    warn "Cargo not found. Rust probe helper will be skipped."
 fi
 
 # Python env
