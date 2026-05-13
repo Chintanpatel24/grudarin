@@ -1,79 +1,59 @@
 <div align=center>
 <img width="300" alt="grudarin-logo" src="public/images/grudarin-logo.png" />
 
-![Grudarin](https://img.shields.io/badge/version-1.1.8-amber?style=flat-square)
+![Grudarin](https://img.shields.io/badge/version-1.2.0-red?style=flat-square)
 ![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
-![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-blue?style=flat-square)
+![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-blue?style=flat-square)
 
 </div>
 
 ---
 
-# Grudarin
->- Grudarin is a powerful open-source Network Monitor (Spy of your own network) for authorized security analysis and education. It captures real-time traffic metadata, highlights destinations such as DNS, HTTP hostnames, and TLS SNI names when available, and helps operators understand how devices communicate on a network without breaking HTTPS encryption.
-- real-time packet monitoring (Spy mode)
-- live network activity and destination feed
-- node-level vulnerability scanning
-- dashboard-first native GUI
-- markdown + JSON reporting saves details in system
+# Grudarin - The Powerful Network Spy
+> **Grudarin** is a high-performance, open-source network monitoring and "spy" tool designed for deep traffic analysis, visitor tracking, and security auditing. It allows you to observe your network in real-time, extracting sensitive metadata and mapping activity without being actively connected to the targets.
 
-> [!IMPORTANT]
-> Grudarin is for ethical and educational use only.
-> Use it only on networks, systems, and traffic you own or are explicitly authorized to assess.
-> Do not use it for covert surveillance, credential theft, privacy invasion, or unauthorized interception.
+## 🕵️ Spy Capabilities
+- **Passive Sniffing**: Capture traffic in "Spy Mode" using monitor mode (`--monitor`).
+- **Visitor Tracking**: Automatically identify local devices visiting specific domains/sites.
+- **Deep Metadata Extraction**: Extract User-Agents, Referrers, and hostnames from HTTP and TLS SNI.
+- **Real-time Activity Feed**: Live stream of DNS queries, HTTP requests, and protocol events.
+- **Network Activity Map**: Visual representation of network topology and data flow.
+- **Automated Recon**: Fast site scanning and asset discovery with `-s`.
 
-## Example output
-> [!important]
-> This tool is under active development.
-  
+## 🚀 Commands & Usage
 
-<table>
-  <tr>
-    <td><img width="1322" height="767" alt="gru2" src="https://github.com/user-attachments/assets/575d7720-6c31-4b84-bce4-ff4a6fb94adb" /> </td>
-    <td><img width="1323" height="767" alt="gru1" src="https://github.com/user-attachments/assets/e150b919-bc5e-4e40-9d57-5504ca559eab" /> </td>
+Grudarin is designed for both interactive and CLI-heavy workflows.
 
-  </tr>
-</table>
+### Core Commands
 
-## Key Capabilities
+| Command | Description |
+|---------|-------------|
+| `sudo grudarin --list` | List all available network interfaces and WiFi networks. |
+| `sudo grudarin --scan <iface>` | Start the live monitoring dashboard (Spy Mode). |
+| `sudo grudarin --scan <iface> --monitor` | Enable **Monitor Mode** for passive sniffing. |
+| `grudarin -s <domain>` | **Site Scan**: Recon a domain and track local visitors to it. |
+| `sudo grudarin --scan <iface> --view graph` | Start with the **Network Activity Map** view. |
+| `sudo grudarin --scan <iface> -o ~/logs` | Save detailed Markdown & JSON reports to a specific directory. |
 
-- Real-time activity dashboard for packets, destinations, devices, and protocols
-- Network Activity Map for structural visualization
-- Flat orange/red nodes on a black dashboard
-- Live edge relation labels and per-node connection labels
-- Node inspector with:
-  - IP, MAC, hostname, vendor, OS hint
-  - protocols, services, open ports
-  - packets/bytes and connected peers
-- One-click node scan and scan-all-visible-nodes
-- Live dashboard charts:
-  - protocol distribution
-  - node type distribution
-  - relation/link type counts
-  - top talkers
-  - realtime timeline (nodes/events/bytes)
-- Site scan mode (grudarin -s):
-  - DNS_NAME, IP_ADDRESS, IP_RANGE, OPEN_TCP_PORT
-  - URL, EMAIL_ADDRESS, STORAGE_BUCKET
-  - ORG_STUB, USER_STUB
-  - TECHNOLOGY, VULNERABILITY
+### Advanced Options
 
-## Tech Stack
+```bash
+# Filter for specific traffic (BPF filter)
+sudo grudarin --scan eth0 -f "tcp port 80 or tcp port 443"
 
-| Language | Component | Purpose |
-|----------|-----------|---------|
-| **Python** | Core engine (`grudarin/`) | Packet capture (Scapy), data model, CLI, orchestration |
-| **C++** | Port scanner (`scanner/scanner.cpp`) | Multi-threaded TCP port scanning, banner grabbing, CVE detection |
-| **Go** | Network probe (`netprobe/netprobe.go`) | Concurrent host discovery, ARP table lookup, TCP fingerprinting |
-| **Lua** | Rules engine (`lua_rules/security_rules.lua`) | Extensible security rules, misconfig detection, anomaly analysis |
-| **Bash** | Install/Update/Uninstall (`*.sh`) | Cross-distro system setup, compilation, dependency management |
-| **Batch** | Windows installer (`install.bat`) | Windows setup with MSVC/MinGW support |
+# Scan specific ports on discovered devices
+sudo grudarin --scan wlan0 --ports 1-65535
 
->## visit the usage.md for more details : [Tap for more details.](usage.md)
+# Run headless (no GUI) for a set duration
+sudo grudarin --scan wlan0 --no-graph --duration 300
 
-## Installation
+# Mask sensitive details in reports
+sudo grudarin --scan wlan0 --privacy-mode
+```
 
-### Linux/macOS/WSL
+## 🛠️ Installation
+
+### Linux / macOS
 
 ```bash
 git clone https://github.com/Chintanpatel24/grudarin.git
@@ -82,121 +62,20 @@ chmod +x install.sh
 sudo ./install.sh
 ```
 
-### pip install (after PyPI publish)
-
+### Quick Run (without global install)
 ```bash
-pip install grudarin
+chmod +x grudarin.sh
+./grudarin.sh --list
 ```
 
-If package is not published yet, install directly from GitHub:
+## 📊 Reporting
+Grudarin saves everything. After every session, a timestamped directory is created containing:
+- `session_report.md`: A detailed Markdown report with "Visitor Activity" and "Security Findings".
+- `session_data.json`: Machine-readable data for further analysis.
+- `packets.log`: Raw event stream of the entire capture.
 
-```bash
-pip install "git+https://github.com/Chintanpatel24/grudarin.git"
-```
+## ⚖️ Ethical Use
+Grudarin is for **ethical and educational use only**. Use it only on networks you own or have explicit permission to monitor. Unauthorized interception of data is illegal and unethical.
 
-Or with pipx (recommended for CLI tools):
-
-```bash
-pipx install "git+https://github.com/Chintanpatel24/grudarin.git"
-```
-
-After publish to PyPI:
-
-```bash
-pipx install grudarin
-```
-
-Then run:
-
-```bash
-sudo grudarin --list
-sudo grudarin --scan wlan0
-grudarin --scan-site example.com
-```
-
-Update to latest version:
-
-```bash
-grudarin --update
-```
-
-### Windows
-
-```text
-1. Install Python 3.8+
-2. Install Npcap (WinPcap compatibility mode)
-3. Open CMD as Administrator
-4. cd grudarin
-5. install.bat
-```
-
-### Manual (any OS)
-
-```bash
-pip install scapy pygame
-g++ -std=c++17 -O2 -Wall -pthread -o bin/grudarin_scanner scanner/scanner.cpp -lpthread
-cd netprobe && go build -o ../bin/grudarin_netprobe netprobe.go && cd ..
-```
-
-## Features
-
-- **Real-time packet capture** with protocol analysis (TCP, UDP, ICMP, ARP, DNS, DHCP, HTTP, HTTPS, SSH, FTP, SMB, RDP, SNMP, and more)
-- **Live activity dashboard** with device, protocol, packet, and destination feeds
-- **Node labels** showing IP, MAC address, vendor, hostname, and open ports under each device
-- **Protocol labels** on graph edges showing what protocols flow between devices
-- **C++ port scanner** with 38 vulnerability signatures and 34 dangerous port definitions
-- **Go network probe** for fast concurrent host discovery across entire subnets
-- **Lua security rules** with 12 rule categories (extensible with custom rules)
-- **WiFi network discovery** showing available SSIDs, BSSIDs, signal strength
-- **LAN detection** showing connected interfaces, gateways, and routes
-- **ARP spoofing detection** (multiple MACs claiming same IP)
-- **Broadcast storm detection** (excessive broadcast traffic ratios)
-- **DNS anomaly detection** (potential tunneling or exfiltration)
-- **Outdated software detection** (old SSH, Apache, nginx, PHP, IIS versions)
-- **Known backdoor detection** (vsFTPd 2.3.4, ProFTPD 1.3.3)
-- **Markdown reports** with security findings in red bold HTML at the end
-- **JSON data export** for machine processing
-- **Zero tracking, zero telemetry** - completely offline and private
-
-> [!NOTE]
->- **Network Monitor (Spy) + Vulnerability Scanner**
->- **Grudarin** is an open-source cybersecurity tool for authorized monitoring that
->captures live network activity, discovers devices, scans for vulnerabilities and
->misconfigurations, maps network structure, and saves detailed reports in
->Markdown with security findings highlighted in red bold text.
-
-## Quick launcher (local)
-
-A small launcher is provided in `bin/grudarin` to run the project without installing globally. To make `grudarin` available system-wide, one of these options is recommended:
-
-- Use the installer (recommended):
-
-```bash
-cd /path/to/grudarin
-sudo ./install.sh
-```
-
-- Symlink the provided launcher (manual):
-
-```bash
-cd /path/to/grudarin
-sudo ln -sf "$(pwd)/grudarin.sh" /usr/local/bin/grudarin
-# or use the lightweight launcher
-sudo ln -sf "$(pwd)/bin/grudarin" /usr/local/bin/grudarin
-sudo chmod +x /usr/local/bin/grudarin
-```
-
-- Editable/developer install (no system-wide changes):
-
-```bash
-cd /path/to/grudarin
-python3 -m pip install --user -e .
-```
-
-## Ethical use and limits
-
-Grudarin is intended for legitimate, authorized network inspection, troubleshooting, education, and security testing. It is NOT a covert surveillance tool. Do NOT use Grudarin to monitor, intercept, or exfiltrate data from networks or devices without explicit, verifiable authorization.
-
-By using or distributing Grudarin you agree to follow applicable laws and responsible disclosure practices. The project authors are not responsible for misuse.
-
-If you need features for controlled lab testing (for example: simulated client activity, replay logs, or instrumented test rigs), we can add support for replay and synthetic traffic generators that operate only on datasets you supply. Ask and I can add safe, auditable tooling for that purpose.
+---
+*Built with ❤️ for the security community.*
