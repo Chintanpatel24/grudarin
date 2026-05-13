@@ -1,14 +1,9 @@
 """
-Grudarin - Entry point
-Run with: sudo grudarin [command] [options]
-
-Workflow:
-  1. grudarin                    -- Interactive mode, lists networks
-  2. grudarin --scan <interface> -- Start live activity monitoring
-  3. grudarin --help             -- Show all commands
-  4. grudarin --list             -- List available interfaces/networks
+Grudarin - Terminal Network Spy
+Spy on any network without connecting. Deep packet inspection.
+sudo grudarin --list
+sudo grudarin --scan wlan0 --monitor Pixel
 """
-
 import argparse
 import difflib
 import os
@@ -17,7 +12,6 @@ import signal
 import subprocess
 import threading
 import time
-import ipaddress
 import tempfile
 from datetime import datetime
 
@@ -25,22 +19,14 @@ from grudarin import __version__
 from grudarin.capture import PacketCapture
 from grudarin.network_model import NetworkModel
 from grudarin.notes import NotesWriter
-from grudarin.graph_window import GraphWindow
 from grudarin.tui import SpyTUI
 from grudarin.vuln_analyzer import VulnAnalyzer
-from grudarin.site_scan import SiteGraphModel, SiteScanner
-
-
-# ----------------------------------------------------------------
-# Network / WiFi discovery
-# ----------------------------------------------------------------
 
 def discover_wifi_networks():
     """Scan for available WiFi networks using system tools."""
     networks = []
     try:
         if sys.platform == "linux":
-            # Try iwlist first
             try:
                 out = subprocess.check_output(
                     ["iwlist", "scan"], stderr=subprocess.DEVNULL, timeout=15
@@ -57,8 +43,6 @@ def discover_wifi_networks():
                             ssid = None
             except Exception:
                 pass
-
-            # Try nmcli as fallback
             if not networks:
                 try:
                     out = subprocess.check_output(
@@ -66,31 +50,29 @@ def discover_wifi_networks():
                         stderr=subprocess.DEVNULL, timeout=15
                     ).decode("utf-8", errors="ignore")
                     for line in out.strip().splitlines():
-                        parts = line.split(":")
+                        # nmcli -t escapes colons with backslash; unescape them
+                        unescaped = line.replace("\\:", "\x00")
+                        parts = unescaped.split(":")
+                        parts = [p.replace("\x00", ":") for p in parts]
                         if len(parts) >= 4 and parts[0].strip():
                             networks.append({
-                                "ssid": parts[0].strip(),
-                                "bssid": parts[1].strip(),
-                                "signal": parts[2].strip(),
-                                "security": parts[3].strip(),
+                                "ssid": parts[0].strip(), "bssid": parts[1].strip(),
+                                "signal": parts[2].strip(), "security": parts[3].strip(),
                             })
                 except Exception:
                     pass
-
         elif sys.platform == "darwin":
             try:
-                out = subprocess.check_output(
-                    ["/System/Library/PrivateFrameworks/Apple80211.framework/"
-                     "Versions/Current/Resources/airport", "-s"],
-                    stderr=subprocess.DEVNULL, timeout=15
-                ).decode("utf-8", errors="ignore")
+                out = subprocess.check_output([
+                    "/System/Library/PrivateFrameworks/Apple80211.framework/"
+                    "Versions/Current/Resources/airport", "-s"
+                ], stderr=subprocess.DEVNULL, timeout=15).decode("utf-8", errors="ignore")
                 for line in out.strip().splitlines()[1:]:
                     parts = line.split()
                     if len(parts) >= 2:
                         networks.append({"ssid": parts[0], "bssid": parts[1]})
             except Exception:
                 pass
-
         elif sys.platform == "win32":
             try:
                 out = subprocess.check_output(
@@ -110,12 +92,10 @@ def discover_wifi_networks():
                 pass
     except Exception:
         pass
-
     return networks
 
-
 def list_interfaces():
-    """List available network interfaces."""
+    """List available network interfaces and WiFi networks."""
     try:
         from scapy.all import get_if_list, get_if_addr, get_if_hwaddr, conf
     except ImportError:
@@ -127,7 +107,6 @@ def list_interfaces():
     print("  " + "-" * 60)
     print(f"  {'Interface':<18} {'IP Address':<18} {'MAC Address':<20} {'Status'}")
     print("  " + "-" * 60)
-
     for iface in interfaces:
         try:
             addr = get_if_addr(iface)
@@ -140,7 +119,6 @@ def list_interfaces():
         status = "UP" if addr and addr != "0.0.0.0" else "DOWN"
         print(f"  {iface:<18} {addr:<18} {mac:<20} {status}")
 
-    # Discover WiFi
     print("\n  DETECTED WIFI NETWORKS")
     print("  " + "-" * 60)
     wifi_nets = discover_wifi_networks()
@@ -157,7 +135,6 @@ def list_interfaces():
     else:
         print("  No WiFi networks found (may need root or wireless tools)")
 
-    # Connected LANs
     print("\n  CONNECTED LAN / GATEWAY INFO")
     print("  " + "-" * 60)
     try:
@@ -167,21 +144,16 @@ def list_interfaces():
             print(f"  Output Interface : {gw[0]}")
     except Exception:
         print("  Could not detect gateway")
-
     print()
 
-
 def _get_interfaces():
-    """Return available system interfaces (best effort)."""
     try:
         from scapy.all import get_if_list
         return list(get_if_list())
     except Exception:
         return []
 
-
 def _normalize_interface_guess(value):
-    """Normalize common interface typos such as wlano -> wlan0."""
     raw = (value or "").strip()
     if not raw:
         return raw
@@ -189,58 +161,38 @@ def _normalize_interface_guess(value):
         return raw[:-1] + "0"
     return raw
 
-
 def _suggest_interface(user_value, interfaces=None):
-    """Suggest the closest known interface for a mistyped name."""
     raw = (user_value or "").strip()
     if not raw:
         return None
     interfaces = interfaces or _get_interfaces()
     if not interfaces:
         return None
-
     lowered = {iface.lower(): iface for iface in interfaces}
     normalized = _normalize_interface_guess(raw).lower()
     if normalized in lowered:
         return lowered[normalized]
-
-    matches = difflib.get_close_matches(
-        raw.lower(),
-        list(lowered.keys()),
-        n=1,
-        cutoff=0.55,
-    )
+    matches = difflib.get_close_matches(raw.lower(), list(lowered.keys()), n=1, cutoff=0.55)
     if matches:
         return lowered[matches[0]]
     return None
 
-
 def _resolve_scan_interface(user_value):
-    """
-    Resolve user-provided scan target to an interface.
-    Accepts direct interface names and, on Linux, connected SSID names.
-    """
     raw = (user_value or "").strip()
     if not raw:
         return None
-
     interfaces = _get_interfaces()
     iface_map = {i.lower(): i for i in interfaces}
     if raw.lower() in iface_map:
         return iface_map[raw.lower()]
-
     normalized_guess = _normalize_interface_guess(raw)
     if normalized_guess.lower() in iface_map:
         return iface_map[normalized_guess.lower()]
-
-    # Linux convenience: allow passing SSID (e.g., hotspot name) instead of iface.
     if sys.platform == "linux":
-        # Try active WiFi map first.
         try:
             out = subprocess.check_output(
                 ["nmcli", "-t", "-f", "DEVICE,ACTIVE,SSID", "dev", "wifi"],
-                stderr=subprocess.DEVNULL,
-                timeout=8,
+                stderr=subprocess.DEVNULL, timeout=8
             ).decode("utf-8", errors="ignore")
             for line in out.splitlines():
                 parts = line.split(":")
@@ -256,37 +208,17 @@ def _resolve_scan_interface(user_value):
                         return iface_map[dev.lower()]
         except Exception:
             pass
-
-        # Try iw dev as second option for connected SSID
-        try:
-            out = subprocess.check_output(["iw", "dev"], stderr=subprocess.DEVNULL, timeout=5).decode("utf-8", errors="ignore")
-            curr_iface = None
-            for line in out.splitlines():
-                line = line.strip()
-                if line.startswith("Interface"):
-                    curr_iface = line.split()[1]
-                if line.startswith("ssid") and curr_iface:
-                    found_ssid = line.split(" ", 1)[1].strip()
-                    if found_ssid.lower() == raw.lower():
-                        if curr_iface in interfaces: return curr_iface
-                        if curr_iface.lower() in iface_map: return iface_map[curr_iface.lower()]
-        except Exception:
-            pass
-
-        # Fallback: if SSID exists in scan list, pick connected wifi device or first wifi device.
         try:
             nets = discover_wifi_networks()
             if any(str(n.get("ssid", "")).lower() == raw.lower() for n in nets):
-                # Prefer connected wifi interface if nmcli is available.
                 wifi_devices = []
                 try:
                     out = subprocess.check_output(
                         ["nmcli", "-t", "-f", "DEVICE,TYPE,STATE", "dev", "status"],
-                        stderr=subprocess.DEVNULL,
-                        timeout=8,
+                        stderr=subprocess.DEVNULL, timeout=8
                     ).decode("utf-8", errors="ignore")
                     for line in out.splitlines():
-                        parts = line.split(":" )
+                        parts = line.split(":")
                         if len(parts) < 3:
                             continue
                         dev = parts[0].strip()
@@ -299,49 +231,23 @@ def _resolve_scan_interface(user_value):
                                     return mapped
                                 wifi_devices.append(mapped)
                 except Exception:
-                    # nmcli may not be available in the sudo environment; continue to other fallbacks.
                     wifi_devices = []
-
                 if wifi_devices:
                     return wifi_devices[0]
-
-                # As a last resort, pick the first interface that looks like a wireless adapter
-                # (common prefixes used by Linux: wlan, wl, wlp, wifi). This helps when nmcli
-                # or iwlist are unavailable under sudo but a wireless device exists.
                 for candidate in interfaces:
                     low = candidate.lower()
                     if low.startswith(("wlan", "wl", "wlp", "wifi")):
                         return candidate
         except Exception:
             pass
-
     return None
 
-
 def _validate_interface_exists(iface):
-    """True if interface currently exists from Scapy's perspective."""
     return iface in _get_interfaces()
 
-
-def _print_subprocess_output(prefix, result):
-    """Print captured subprocess output with a consistent prefix."""
-    for stream in (getattr(result, "stdout", "") or "", getattr(result, "stderr", "") or ""):
-        for line in str(stream).splitlines():
-            line = line.rstrip()
-            if line:
-                print(f"  {prefix} {line}")
-
-
 def parse_args():
-    """Parse command line arguments."""
     argv = list(sys.argv[1:])
-    # Support user shorthand: grudarin --scan -site example.invalid
-    for idx, tok in enumerate(argv):
-        if tok == "--scan" and idx + 2 < len(argv) and argv[idx + 1] == "-site":
-            domain = argv[idx + 2]
-            argv = argv[:idx] + ["--scan-site", domain] + argv[idx + 3:]
-            break
-    # Support shorthand: grudarin --scan wlan0 Pixel
+    # Convert: --scan wlan0 Pixel -> --scan wlan0 --ssid Pixel
     for idx, tok in enumerate(argv):
         if tok == "--scan" and idx + 2 < len(argv):
             iface = argv[idx + 1]
@@ -349,146 +255,86 @@ def parse_args():
             if iface and not iface.startswith("-") and maybe_ssid and not maybe_ssid.startswith("-"):
                 argv = argv[:idx] + ["--scan", iface, "--ssid", maybe_ssid] + argv[idx + 3:]
             break
+    # Convert: --monitor Pixel -> --monitor --ssid Pixel (when no --scan with trailing name)
+    for idx, tok in enumerate(argv):
+        if tok == "--monitor" and idx + 1 < len(argv):
+            nxt = argv[idx + 1]
+            if nxt and not nxt.startswith("-") and "--ssid" not in argv:
+                argv = argv[:idx] + ["--monitor", "--ssid", nxt] + argv[idx + 2:]
+            break
+    sys.argv[1:] = argv
 
     parser = argparse.ArgumentParser(
         prog="grudarin",
-        description=(
-            "Grudarin - Network Monitor (Spy of your own network) + Vulnerability Scanner"
-        ),
+        description="Grudarin - Network Spy: Monitor any network, capture deep intelligence",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 WORKFLOW:
-  1. sudo grudarin --list                 List interfaces and WiFi networks
-  2. sudo grudarin --scan wlan0           Start live monitoring on wlan0 (Spy mode)
-  3. sudo grudarin -s example.com         Scan a site and track visitors
-  4. sudo grudarin --scan eth0 -o ~/notes Start monitoring, save detailed notes
+  1. sudo grudarin --list                        List interfaces and WiFi networks
+  2. sudo grudarin --scan wlan0                  Spy on all local traffic (passive)
+  3. sudo grudarin --scan wlan0 --stealth        Anonymous: randomizes MAC, clears traces
+  4. sudo grudarin --scan eth0 --target-ip 192.168.1.10  ARP MITM: intercept target's full traffic
+  5. sudo grudarin --scan wlan0 --monitor Pixel  Spy on specific WiFi network
+  6. sudo grudarin -s example.com                Site recon scan with graph UI
 
 EXAMPLES:
-  sudo grudarin --scan wlan0 --name my_home_scan
-  sudo grudarin --scan wlan0 Pixel
-  sudo grudarin --scan wlan0 --ssid Pixel --view dashboard
-  sudo grudarin --scan wlan0 --view graph
-  grudarin -s example.com
-  sudo grudarin --scan eth0 -o /tmp/reports --ports 1-65535
-  sudo grudarin --scan wlan0 --no-graph --duration 120
-  sudo grudarin --scan eth0 --targets 192.168.1.1,192.168.1.100
-  sudo grudarin --list
+  sudo grudarin --scan wlan0
+  sudo grudarin --scan wlan0 --stealth
+  sudo grudarin --scan eth0 --target-ip 192.168.1.10 --gateway-ip 192.168.1.1
+  sudo grudarin --scan wlan0 --monitor "Pixel"
+  sudo grudarin -s example.com
 
-UI MODES:
-    dashboard       Default live activity and packet dashboard
-    graph           Network Activity Map for structure visualization
-    Ctrl+C / Close  Stop capture and print report output path
+NOTES:
+  --stealth   : Randomizes MAC, clears ARP cache, suppresses logs (OpSec)
+  --target-ip : Enables ARP MITM to intercept ALL traffic from a specific device
+  Ctrl+C      : Stop session, restore original MAC, generate report
+  Reports     : Saved to grudarin_output/ directory
 """
     )
-    parser.add_argument(
-        "--scan", metavar="INTERFACE",
-        type=str, default=None,
-        help="Start scan on this interface (e.g., wlan0, eth0, en0)"
-    )
-    parser.add_argument(
-        "--ssid", type=str, default=None,
-        help="Optional WiFi/hotspot SSID label for capture context"
-    )
-    parser.add_argument(
-        "--scan-site", "--site", "-site", "-s", metavar="DOMAIN",
-        type=str, default=None,
-        help="Scan a website/domain (e.g., example.invalid) and build live recon graph"
-    )
-    parser.add_argument(
-        "--list", "-l", action="store_true",
-        help="List available interfaces, WiFi networks, and connected LANs"
-    )
-    parser.add_argument(
-        "-o", "--output", type=str, default=None,
-        help="Directory to save notes and reports"
-    )
-    parser.add_argument(
-        "--name", "-n", type=str, default=None,
-        help="Name for this scan session (used in filenames)"
-    )
-    parser.add_argument(
-        "--duration", "-d", type=int, default=0,
-        help="Stop after N seconds (0 = unlimited, stop with Ctrl+C)"
-    )
-    parser.add_argument(
-        "--no-graph", action="store_true",
-        help="Run headless without the live UI window"
-    )
-    parser.add_argument(
-        "--view", type=str, default="dashboard",
-        choices=["dashboard", "graph"],
-        help="Live UI mode (default: dashboard)"
-    )
-    parser.add_argument(
-        "--ports", type=str, default="1-1024",
-        help="Port range for vulnerability scan (default: 1-1024)"
-    )
-    parser.add_argument(
-        "--targets", type=str, default=None,
-        help="Comma-separated IPs to port-scan (default: auto-discover)"
-    )
-    parser.add_argument(
-        "--no-scan", action="store_true",
-        help="Skip vulnerability scanning (capture only)"
-    )
-    parser.add_argument(
-        "--promisc", action="store_true", default=True,
-        help="Enable promiscuous mode (default: on)"
-    )
-    parser.add_argument(
-        "--monitor", action="store_true",
-        help="Attempt to put interface in monitor mode (Linux only)"
-    )
-    parser.add_argument(
-        "--filter", "-f", type=str, default=None,
-        help="BPF filter (e.g., 'tcp port 80')"
-    )
-    parser.add_argument(
-        "--export-graph", type=str, default="none",
-        choices=["none", "json", "csv", "both"],
-        help="Export graph data as JSON/CSV files (default: none)"
-    )
-    parser.add_argument(
-        "--privacy-mode", action="store_true",
-        help="Mask sensitive IP details in output reports/exports"
-    )
-    parser.add_argument(
-        "--update", action="store_true",
-        help="Update Grudarin to latest version (git repo or pipx install)"
-    )
-    parser.add_argument(
-        "--update-repo", type=str, default="https://github.com/Chintanpatel24/grudarin.git",
-        help="GitHub repo URL used for pipx update/install"
-    )
-    return parser.parse_args(argv)
-
+    parser.add_argument("--scan", metavar="INTERFACE", type=str, default=None,
+                        help="Start spy session on interface (e.g., wlan0, eth0)")
+    parser.add_argument("--ssid", type=str, default=None,
+                        help="Target WiFi SSID label")
+    parser.add_argument("--monitor", action="store_true",
+                        help="Enable monitor mode (Linux) - spy without connecting")
+    parser.add_argument("-s", "--scan-site", "--site", metavar="DOMAIN", type=str, default=None,
+                        help="Scan a website/domain (e.g., example.com)")
+    parser.add_argument("--list", "-l", action="store_true", help="List interfaces and networks")
+    parser.add_argument("-o", "--output", type=str, default=None, help="Output directory")
+    parser.add_argument("--name", "-n", type=str, default=None, help="Session name")
+    parser.add_argument("--duration", "-d", type=int, default=0, help="Auto-stop after N seconds")
+    parser.add_argument("--no-graph", action="store_true", help="Disable TUI (headless)")
+    parser.add_argument("--ports", type=str, default="1-1024", help="Port range for vuln scan")
+    parser.add_argument("--targets", type=str, default=None, help="Comma-separated IPs to scan")
+    parser.add_argument("--no-scan", action="store_true", help="Skip vulnerability scanning")
+    parser.add_argument("--promisc", action="store_true", default=True, help="Promiscuous mode (default: on)")
+    parser.add_argument("--filter", "-f", type=str, default=None, help="BPF filter")
+    parser.add_argument("--export-graph", type=str, default="none", choices=["none", "json", "csv", "both"],
+                        help="Export graph data as JSON/CSV")
+    parser.add_argument("--privacy-mode", action="store_true", help="Mask IPs in reports")
+    parser.add_argument("--stealth", action="store_true", help="Enable anonymity: randomize MAC, suppress logs")
+    parser.add_argument("--target-ip", type=str, default=None, help="Specific target IP for ARP MITM interception")
+    parser.add_argument("--gateway-ip", type=str, default=None, help="Gateway IP for ARP spoofing")
+    return parser.parse_args()
 
 def print_banner():
-    """Print the Grudarin banner."""
     print("""
     ================================================================
-                          G R U D A R I N
-           Network Monitor (Spy) + Vulnerability Scanner
-                           v%s
+                      G R U D A R I N
+                Network Spy & Intelligence Tool
+                            v%s
     ================================================================
     """ % __version__)
 
-
 def _resolve_output_base_dir(requested_dir=None):
-    """
-    Return a writable base output directory.
-    Falls back to user-home local data path, then temp directory.
-    """
     candidates = []
     if requested_dir:
         candidates.append(os.path.abspath(os.path.expanduser(requested_dir)))
     else:
         candidates.append(os.path.join(os.getcwd(), "grudarin_output"))
-
     home = os.path.expanduser("~")
     candidates.append(os.path.join(home, ".local", "share", "grudarin_output"))
     candidates.append(os.path.join(tempfile.gettempdir(), "grudarin_output"))
-
     last_err = None
     for base in candidates:
         try:
@@ -500,23 +346,15 @@ def _resolve_output_base_dir(requested_dir=None):
             return base
         except Exception as e:
             last_err = e
-            continue
-
     print(f"  [error] No writable output directory found: {last_err}")
     sys.exit(1)
 
-
 def _set_monitor_mode(iface, enabled=True):
-    """Enable or disable monitor mode on Linux."""
     if sys.platform != "linux":
         return False
     try:
-        # Check if interface exists
-        subprocess.check_call(["ip", "link", "show", iface], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
         mode = "monitor" if enabled else "managed"
         print(f"  [monitor] Setting {iface} to {mode} mode...")
-
         subprocess.check_call(["ip", "link", "set", iface, "down"])
         subprocess.check_call(["iw", "dev", iface, "set", "type", mode])
         subprocess.check_call(["ip", "link", "set", iface, "up"])
@@ -525,149 +363,111 @@ def _set_monitor_mode(iface, enabled=True):
         print(f"  [error] Failed to set monitor mode: {e}")
         return False
 
-
 def check_privileges():
-    """Check root/admin privileges."""
     if os.name == "nt":
         try:
             import ctypes
             return ctypes.windll.shell32.IsUserAnAdmin() != 0
         except Exception:
             return False
-    else:
-        return os.geteuid() == 0
-
-
-def check_tools():
-    """Check which compiled tools are available."""
-    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    tools = {}
-
-    scanner_path = os.path.join(base, "bin", "grudarin_scanner")
-    tools["cpp_scanner"] = os.path.isfile(scanner_path) and os.access(scanner_path, os.X_OK)
-
-    netprobe_path = os.path.join(base, "bin", "grudarin_netprobe")
-    tools["go_netprobe"] = os.path.isfile(netprobe_path) and os.access(netprobe_path, os.X_OK)
-
-    for lua_cmd in ["lua5.4", "lua5.3", "lua"]:
-        try:
-            subprocess.run([lua_cmd, "-v"], capture_output=True, timeout=3)
-            tools["lua"] = True
-            tools["lua_cmd"] = lua_cmd
-            break
-        except Exception:
-            continue
-    else:
-        tools["lua"] = False
-
-    return tools
-
+    return os.geteuid() == 0
 
 def interactive_mode():
-    """Interactive mode when no arguments given."""
     print_banner()
     if not check_privileges():
-        print("  [warn] Not running as root. Run with sudo for full capture.")
-        print()
-
+        print("  [warn] Not running as root. Run with sudo for full capture.\n")
     list_interfaces()
-
-    print("  To start scanning, use:")
-    print("    sudo grudarin --scan <interface_name>")
+    print("  To spy on a network, use:")
+    print("    sudo grudarin --scan <interface> --monitor <SSID>")
     print()
-    print("  For full help:")
-    print("    grudarin --help")
-    print()
-
     iface = input("  Enter interface to scan (or press Enter to exit): ").strip()
     if not iface:
         print("  Exiting.")
         sys.exit(0)
-
     output_dir = input("  Enter path to save notes [./grudarin_output]: ").strip()
-    if not output_dir:
-        output_dir = _resolve_output_base_dir(None)
-    else:
-        output_dir = _resolve_output_base_dir(output_dir)
-
-    scan_name = input("  Enter a name for this scan [session]: ").strip()
-    if not scan_name:
-        scan_name = "session"
-
+    output_dir = _resolve_output_base_dir(output_dir) if output_dir else _resolve_output_base_dir(None)
+    scan_name = input("  Enter a name for this scan [session]: ").strip() or "session"
     return iface, output_dir, scan_name
 
+def _fmt_bytes(n):
+    if n < 1024: return f"{n} B"
+    elif n < 1048576: return f"{n/1024:.1f} KB"
+    elif n < 1073741824: return f"{n/1048576:.1f} MB"
+    return f"{n/1073741824:.2f} GB"
 
 def run_scan(iface, output_dir, scan_name, args):
-    """Run the main scan pipeline."""
     output_dir = _resolve_output_base_dir(output_dir)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in scan_name)
     session_dir = os.path.join(output_dir, f"grudarin_{safe_name}_{timestamp}")
     os.makedirs(session_dir, exist_ok=True)
 
-    tools = check_tools()
-
     print(f"\n  Interface   : {iface}")
-    if args.ssid:
-        print(f"  Target SSID : {args.ssid}")
+    target_str = args.ssid or "ALL TRAFFIC"
+    print(f"  Target      : {target_str}")
     print(f"  Output      : {session_dir}")
     print(f"  Scan Name   : {scan_name}")
     print(f"  Duration    : {'Unlimited' if args.duration == 0 else str(args.duration) + 's'}")
-    print(f"  Port Range  : {args.ports}")
-    print(f"  Live UI     : {'Disabled' if args.no_graph else args.view}")
-    if not args.no_graph:
-        print(f"  Map Mode    : {'Network Activity Map' if args.view == 'graph' else 'Available via --view graph'}")
-    print(f"  Vuln Scan   : {'Disabled' if args.no_scan else 'Enabled'}")
-    print(f"  C++ Scanner : {'Ready' if tools.get('cpp_scanner') else 'Python fallback'}")
-    print(f"  Go Netprobe : {'Ready' if tools.get('go_netprobe') else 'Python fallback'}")
-    print(f"  Lua Rules   : {'Ready' if tools.get('lua') else 'Python fallback'}")
-    print("  Notice      : Ethical and educational use only on authorized networks")
+    print(f"  TUI         : {'Disabled' if args.no_graph else 'Enabled'}")
+    c_engine = os.path.isfile(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bin", "grudarin_capture"))
+    print(f"  C Engine    : {'Ready' if c_engine else 'Not compiled (Scapy fallback)'}")
+
+    # Stealth mode: MAC randomization
+    original_mac = None
+    if args.stealth:
+        from grudarin.anonymous import change_mac, get_original_mac, clear_arp_cache, clear_logs
+        original_mac = get_original_mac(iface)
+        new_mac = change_mac(iface)
+        if new_mac:
+            print(f"  Stealth     : MAC randomized to {new_mac}")
+        else:
+            print("  Stealth     : MAC randomization failed (run as root)")
+        clear_arp_cache()
+        clear_logs()
+    else:
+        print("  Stealth     : Disabled (use --stealth for anonymous mode)")
+
+    # ARP spoofing setup
+    target_ip = args.target_ip
+    gateway_ip = args.gateway_ip
+    arp_mode = bool(target_ip)
+    if arp_mode:
+        from grudarin.anonymous import clear_arp_cache
+        print(f"  ARP MITM    : Intercepting {target_ip} via gateway {gateway_ip or '(auto)'}")
+        clear_arp_cache()
+
+    print("  Notice      : Authorized security testing only")
     print()
 
-    # Shared state
     network_model = NetworkModel()
     notes_writer = NotesWriter(session_dir)
     stop_event = threading.Event()
 
-    # Capture engine
     capture = PacketCapture(
-        interface=iface,
-        network_model=network_model,
-        notes_writer=notes_writer,
-        stop_event=stop_event,
-        promisc=args.promisc,
-        bpf_filter=args.filter
+        interface=iface, network_model=network_model, notes_writer=notes_writer,
+        stop_event=stop_event, promisc=args.promisc, bpf_filter=args.filter,
+        target_ip=target_ip, gateway_ip=gateway_ip
     )
+    vuln_analyzer = VulnAnalyzer(network_model=network_model, session_dir=session_dir)
 
-    # Vuln analyzer
-    vuln_analyzer = VulnAnalyzer(
-        network_model=network_model,
-        session_dir=session_dir
-    )
-
-    # Signal handler
     def on_signal(sig, frame):
         print("\n\n  Stopping Grudarin...")
         stop_event.set()
-
     signal.signal(signal.SIGINT, on_signal)
     signal.signal(signal.SIGTERM, on_signal)
 
-    # Start capture thread
     capture_thread = threading.Thread(target=capture.start, daemon=True)
     capture_thread.start()
-    print("  [live] Capture started on", iface)
-    print("  [live] Packets and network activity are being observed in real time")
-    print("  [live] Authorized monitoring only. HTTPS content stays encrypted; hostnames may appear via DNS/TLS SNI.")
+    print("  [live] Spy session started on", iface)
+    print("  [live] Capturing packets, DNS, HTTP, TLS, and activity in real-time")
+    print("  [live] Press Ctrl+C to stop and generate intelligence report")
     print()
 
-    # Console printer thread (prints live stats in terminal)
     def console_printer():
         while not stop_event.is_set():
             stats = network_model.get_stats()
             line = (
-                f"\r  [scanning] "
-                f"Packets: {stats['total_packets']}  "
+                f"\r  [scanning] Packets: {stats['total_packets']}  "
                 f"Devices: {stats['total_devices']}  "
                 f"Links: {stats['total_connections']}  "
                 f"Data: {_fmt_bytes(stats['total_bytes'])}  "
@@ -676,7 +476,6 @@ def run_scan(iface, output_dir, scan_name, args):
             sys.stdout.write(line)
             sys.stdout.flush()
             time.sleep(0.8)
-
     printer_thread = threading.Thread(target=console_printer, daemon=True)
     printer_thread.start()
 
@@ -689,110 +488,21 @@ def run_scan(iface, output_dir, scan_name, args):
                 source_ip = ev.get("source_ip", "-")
                 event_type = ev.get("event_type", "activity")
                 details = ev.get("details", "")
-                message = f"\n  [activity] {source_ip} -> {target} [{event_type}]"
+                msg = f"\n  [spy] {source_ip} -> {target} [{event_type}]"
                 if details:
-                    message += f" {details}"
-                print(message[:220])
+                    msg += f" {details}"
+                print(msg[:260])
             time.sleep(0.4)
-
     activity_thread = threading.Thread(target=activity_printer, daemon=True)
     activity_thread.start()
 
-    # TUI, graph, or headless
     if not args.no_graph:
-        def scan_node_callback(target_ip):
-            """Scan a selected graph node and return structured details."""
-            issues = []
-            open_ports = []
-
-            # Prefer C++ scanner when available.
-            if vuln_analyzer.has_cpp_scanner:
-                cpp_res = vuln_analyzer.run_cpp_scanner(
-                    target_ip,
-                    port_range=args.ports,
-                    threads=40,
-                    timeout=400,
-                )
-                if cpp_res:
-                    # Handle both host-list and single-host style payloads.
-                    hosts = cpp_res if isinstance(cpp_res, list) else [cpp_res]
-                    for host in hosts:
-                        if host.get("ip") == target_ip or host.get("target") == target_ip:
-                            for p in host.get("open_ports", []):
-                                pnum = p.get("port") if isinstance(p, dict) else p
-                                if pnum:
-                                    open_ports.append(int(pnum))
-                                if isinstance(p, dict) and p.get("vulnerability"):
-                                    issues.append({
-                                        "severity": p.get("severity", "medium"),
-                                        "text": p.get("vulnerability", ""),
-                                    })
-
-            # Python fallback or supplement.
-            if not open_ports:
-                try:
-                    parts = str(args.ports).split("-")
-                    p_start = int(parts[0]) if len(parts) >= 1 else 1
-                    p_end = int(parts[1]) if len(parts) >= 2 else 1024
-                except Exception:
-                    p_start, p_end = 1, 1024
-
-                py_ports = vuln_analyzer.run_python_scanner(
-                    target_ip,
-                    port_start=p_start,
-                    port_end=p_end,
-                    threads=40,
-                    timeout=0.35,
-                )
-                for p in py_ports:
-                    pnum = int(p.get("port", 0))
-                    if pnum > 0:
-                        open_ports.append(pnum)
-                    if pnum in vuln_analyzer.DANGEROUS_PORTS:
-                        svc, sev, risk = vuln_analyzer.DANGEROUS_PORTS[pnum]
-                        issues.append({
-                            "severity": sev,
-                            "text": f"{svc} on {pnum}: {risk}",
-                        })
-                    banner = p.get("banner", "") or ""
-                    if banner:
-                        for pat, _name, sev, desc in vuln_analyzer.VULN_SIGNATURES:
-                            if pat in banner:
-                                issues.append({"severity": sev, "text": desc})
-                                break
-
-            # Deduplicate while preserving order.
-            dedup_ports = []
-            seen = set()
-            for p in sorted(open_ports):
-                if p not in seen:
-                    seen.add(p)
-                    dedup_ports.append(p)
-
-            return {
-                "ip": target_ip,
-                "port_range": args.ports,
-                "open_ports": dedup_ports,
-                "issues": issues,
-            }
-
-        if args.view == "graph":
-            graph_window = GraphWindow(
-                network_model=network_model,
-                stop_event=stop_event,
-                notes_writer=notes_writer,
-                session_dir=session_dir,
-                scan_callback=scan_node_callback,
-            )
-            graph_window.run()
-        else:
-            tui = SpyTUI(
-                network_model=network_model,
-                stop_event=stop_event,
-                interface=iface,
-                target_ssid=args.ssid or "",
-            )
-            tui.run()
+        tui = SpyTUI(
+            network_model=network_model, stop_event=stop_event,
+            interface=iface, target_ssid=args.ssid or "",
+            arp_mode=bool(args.target_ip)
+        )
+        tui.run()
     else:
         try:
             if args.duration > 0:
@@ -809,72 +519,46 @@ def run_scan(iface, output_dir, scan_name, args):
     stop_event.set()
     capture_thread.join(timeout=5)
     print("\n")
-
-    # Vulnerability analysis
     findings_data = []
     if not args.no_scan:
-        print("  [analysis] Running vulnerability and misconfiguration scan...")
-        scan_targets = None
-        if args.targets:
-            scan_targets = [t.strip() for t in args.targets.split(",")]
-        findings = vuln_analyzer.analyze(
-            scan_targets=scan_targets,
-            port_range=args.ports
-        )
+        print("  [analysis] Running vulnerability analysis...")
+        scan_targets = [t.strip() for t in args.targets.split(",")] if args.targets else None
+        findings = vuln_analyzer.analyze(scan_targets=scan_targets, port_range=args.ports)
         findings_data = vuln_analyzer.get_findings_dicts()
-
-        # Print findings to console
         if findings:
-            print()
-            print("  " + "=" * 60)
-            print("  SECURITY FINDINGS")
+            print("\n  SECURITY FINDINGS")
             print("  " + "=" * 60)
             for f in findings:
                 sev = f.severity.upper()
-                tag = f"[{sev}]"
-                print(f"  {tag:<12} {f.title}")
-                print(f"               {f.description[:80]}")
+                print(f"  [{sev:<8}] {f.title}")
+                print(f"             {f.description[:80]}")
                 if f.affected:
-                    print(f"               Affected: {f.affected}")
+                    print(f"             Affected: {f.affected}")
                 print()
-    else:
-        print("  [skip] Vulnerability scan disabled")
-
-    # Write reports
-    print("  [report] Writing final reports...")
-    notes_writer.write_final_report(
-        network_model,
-        findings_data,
-        privacy_mode=args.privacy_mode,
-        export_graph=args.export_graph,
-    )
-
+    print("  [report] Writing intelligence reports...")
+    notes_writer.write_final_report(network_model, findings_data, privacy_mode=args.privacy_mode, export_graph=args.export_graph)
+    print(f"\n  Reports saved to: {session_dir}")
+    print("    session_report.md")
+    print("    session_data.json")
+    print("    packets.log")
     print()
-    print(f"  Reports saved to: {session_dir}")
-    print(f"    session_report.md    Markdown report (security findings in red)")
-    print(f"    session_data.json    Machine-readable full data")
-    print(f"    packets.log          Raw packet log")
-    if args.export_graph in ("json", "both"):
-        print(f"    graph_export.json    Graph export (nodes/edges)")
-    if args.export_graph in ("csv", "both"):
-        print(f"    graph_nodes.csv      Graph nodes table")
-        print(f"    graph_edges.csv      Graph edges table")
-    print()
-
     stats = network_model.get_stats()
-    print(f"  Session Summary:")
+    print("  Spy Session Summary:")
     print(f"    Total Packets  : {stats['total_packets']}")
     print(f"    Devices Found  : {stats['total_devices']}")
     print(f"    Connections    : {stats['total_connections']}")
     print(f"    Data Captured  : {_fmt_bytes(stats['total_bytes'])}")
     print(f"    Findings       : {len(findings_data)}")
-    print()
-    print("  Grudarin session complete.")
-    print()
-
+    if args.stealth and original_mac:
+        from grudarin.anonymous import restore_mac
+        restore_mac(iface, original_mac)
+        print(f"  [opsec] Original MAC restored: {original_mac}")
+    print("\n  Grudarin spy session complete.\n")
 
 def run_site_scan(domain, output_dir, scan_name, args):
-    """Run website/domain reconnaissance and show live graph."""
+    from grudarin.graph_window import GraphWindow
+    from grudarin.site_scan import SiteGraphModel, SiteScanner
+
     output_dir = _resolve_output_base_dir(output_dir)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in scan_name)
@@ -883,31 +567,20 @@ def run_site_scan(domain, output_dir, scan_name, args):
 
     print(f"\n  Site Target  : {domain}")
     print(f"  Output       : {session_dir}")
-    print(f"  Scan Name    : {scan_name}")
     print(f"  Graph        : {'Disabled' if args.no_graph else 'Enabled'}")
-    print(f"  Duration     : {'Unlimited' if args.duration == 0 else str(args.duration) + 's'}")
-    print("  Recon Types  : DNS_NAME, IP_ADDRESS, IP_RANGE, OPEN_TCP_PORT, URL,")
-    print("                 EMAIL_ADDRESS, STORAGE_BUCKET, ORG_STUB, USER_STUB,")
-    print("                 TECHNOLOGY, VULNERABILITY")
     print()
 
     model = SiteGraphModel()
-
-    # Also start a packet capture to track local visitors to this site
     local_net_model = NetworkModel()
     stop_event = threading.Event()
-
-    # Try to find a default interface for capture
     from scapy.all import conf
     default_iface = conf.iface
     capture = None
     if default_iface:
         from grudarin.notes import NotesWriter as DummyNotesWriter
         capture = PacketCapture(
-            interface=str(default_iface),
-            network_model=local_net_model,
-            notes_writer=DummyNotesWriter(tempfile.gettempdir()),
-            stop_event=stop_event
+            interface=str(default_iface), network_model=local_net_model,
+            notes_writer=DummyNotesWriter(tempfile.gettempdir()), stop_event=stop_event
         )
         threading.Thread(target=capture.start, daemon=True).start()
 
@@ -917,29 +590,21 @@ def run_site_scan(domain, output_dir, scan_name, args):
     def on_signal(_sig, _frame):
         print("\n\n  Stopping site scan...")
         stop_event.set()
-
     signal.signal(signal.SIGINT, on_signal)
     signal.signal(signal.SIGTERM, on_signal)
 
     scan_thread = threading.Thread(target=scanner.run, daemon=True)
     scan_thread.start()
 
-    # Node-level scan callback for site entities.
     def scan_site_node(target_ip):
         issues = []
         open_ports = []
-
         vuln = VulnAnalyzer(network_model=model, session_dir=session_dir)
         try:
+            import ipaddress
             ip_obj = ipaddress.ip_address(target_ip)
             if ip_obj.version == 4:
-                ports = vuln.run_python_scanner(
-                    target_ip,
-                    port_start=1,
-                    port_end=1024,
-                    threads=40,
-                    timeout=0.35,
-                )
+                ports = vuln.run_python_scanner(target_ip, port_start=1, port_end=1024, threads=40, timeout=0.35)
                 for p in ports:
                     pn = int(p.get("port", 0))
                     if pn > 0:
@@ -949,23 +614,13 @@ def run_site_scan(domain, output_dir, scan_name, args):
                         issues.append({"severity": sev, "text": f"{svc} on {pn}: {risk}"})
         except Exception as e:
             issues.append({"severity": "medium", "text": str(e)})
-
-        return {
-            "ip": target_ip,
-            "port_range": "1-1024",
-            "open_ports": sorted(set(open_ports)),
-            "issues": issues,
-        }
+        return {"ip": target_ip, "port_range": "1-1024", "open_ports": sorted(set(open_ports)), "issues": issues}
 
     if not args.no_graph:
         graph_window = GraphWindow(
-            network_model=model,
-            stop_event=stop_event,
-            notes_writer=notes_writer,
-            session_dir=session_dir,
-            scan_callback=scan_site_node,
+            network_model=model, stop_event=stop_event, notes_writer=notes_writer,
+            session_dir=session_dir, scan_callback=scan_site_node
         )
-
         if args.duration and args.duration > 0:
             def timer_stop():
                 deadline = time.time() + args.duration
@@ -973,7 +628,6 @@ def run_site_scan(domain, output_dir, scan_name, args):
                     time.sleep(0.5)
                 stop_event.set()
             threading.Thread(target=timer_stop, daemon=True).start()
-
         graph_window.run()
     else:
         try:
@@ -992,7 +646,6 @@ def run_site_scan(domain, output_dir, scan_name, args):
 
     stop_event.set()
     scan_thread.join(timeout=5)
-
     findings_data = []
     if not args.no_scan:
         print("  [analysis] Running site vulnerability analysis...")
@@ -1000,20 +653,15 @@ def run_site_scan(domain, output_dir, scan_name, args):
         findings = vuln_analyzer.analyze(scan_targets=None, port_range=args.ports)
         findings_data = vuln_analyzer.get_findings_dicts()
         if findings:
-            print()
-            print("  " + "=" * 60)
-            print("  SITE SECURITY FINDINGS")
+            print("\n  SITE SECURITY FINDINGS")
             print("  " + "=" * 60)
             for finding in findings:
                 sev = finding.severity.upper()
                 print(f"  [{sev:<8}] {finding.title}")
-                print(f"               {finding.description[:80]}")
+                print(f"             {finding.description[:80]}")
                 if finding.affected:
-                    print(f"               Affected: {finding.affected}")
+                    print(f"             Affected: {finding.affected}")
                 print()
-    else:
-        print("  [skip] Vulnerability scan disabled")
-
     site_data = model.get_full_data()
     for key, dev in site_data.get("devices", {}).items():
         if dev.get("node_type") != "VULNERABILITY":
@@ -1025,122 +673,20 @@ def run_site_scan(domain, output_dir, scan_name, args):
             "affected": dev.get("ip", ""),
             "recommendation": dev.get("recommendation", "Review the exposed endpoint and restrict access."),
         })
-
     severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
     findings_data.sort(key=lambda item: severity_order.get(str(item.get("severity", "info")).lower(), 99))
-
-    print("\n  [report] Writing final reports...")
-    notes_writer.write_final_report(
-        model,
-        findings_data,
-        privacy_mode=args.privacy_mode,
-        export_graph=args.export_graph,
-    )
-
+    print("\n  [report] Writing reports...")
+    notes_writer.write_final_report(model, findings_data, privacy_mode=args.privacy_mode, export_graph=args.export_graph)
     stats = model.get_stats()
     print(f"\n  Reports saved to: {session_dir}")
-    print("    session_report.md")
-    print("    session_data.json")
-    print("    packets.log")
-    if args.export_graph in ("json", "both"):
-        print("    graph_export.json")
-    if args.export_graph in ("csv", "both"):
-        print("    graph_nodes.csv")
-        print("    graph_edges.csv")
-    print("\n  Site Scan Summary:")
+    print("  Site Scan Summary:")
     print(f"    Entities Found : {stats['total_devices']}")
     print(f"    Relationships  : {stats['total_connections']}")
     print(f"    Events         : {stats['total_packets']}")
     print(f"    Data Processed : {_fmt_bytes(stats['total_bytes'])}")
     print("\n  Grudarin site scan complete.\n")
 
-
-def _fmt_bytes(n):
-    if n < 1024:
-        return f"{n} B"
-    elif n < 1048576:
-        return f"{n/1024:.1f} KB"
-    elif n < 1073741824:
-        return f"{n/1048576:.1f} MB"
-    return f"{n/1073741824:.2f} GB"
-
-
-def _run_update(args):
-    """Update Grudarin using best available method."""
-    print_banner()
-    print("  [update] Preparing upgrade plan...")
-    print(f"  [update] Current version: {__version__}")
-
-    # Method 1: local repo updater script
-    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    update_script = os.path.join(base, "update.sh")
-    if os.path.isfile(update_script):
-        print("  [update] Found local repository update script.")
-        print(f"  [update] Running: {update_script}")
-        try:
-            result = subprocess.run(
-                ["bash", update_script],
-                check=False,
-                text=True,
-                capture_output=True,
-            )
-            _print_subprocess_output("[update]", result)
-            if result.returncode == 0:
-                print("  [ok] Update completed using local update.sh")
-                return
-            print("  [warn] Local update.sh failed, trying pipx fallback...")
-        except Exception as e:
-            print(f"  [warn] Local update script error: {e}")
-
-    # Method 2: pipx upgrade if available
-    try:
-        chk = subprocess.run(["pipx", "--version"], capture_output=True, text=True, timeout=8)
-        if chk.returncode == 0:
-            print("  [update] Using pipx to upgrade Grudarin...")
-            cmd = ["pipx", "upgrade", "--include-injected", "grudarin"]
-            res = subprocess.run(cmd, check=False, text=True, capture_output=True)
-            _print_subprocess_output("[pipx]", res)
-            if res.returncode == 0:
-                print("  [ok] pipx upgrade complete.")
-                return
-
-            print("  [update] pipx upgrade did not complete. Reinstalling from repo...")
-            reinstall = [
-                "pipx", "install", "--force", f"git+{args.update_repo}"
-            ]
-            res2 = subprocess.run(reinstall, check=False, text=True, capture_output=True)
-            _print_subprocess_output("[pipx]", res2)
-            if res2.returncode == 0:
-                print("  [ok] pipx reinstall from GitHub complete.")
-                return
-    except Exception:
-        pass
-
-    # Method 3: pip user install fallback
-    print("  [update] Falling back to pip user install from GitHub...")
-    pip_cmds = [
-        [sys.executable, "-m", "pip", "install", "--upgrade", f"git+{args.update_repo}"],
-        [sys.executable, "-m", "pip", "install", "--user", "--upgrade", f"git+{args.update_repo}"],
-    ]
-    for cmd in pip_cmds:
-        try:
-            res = subprocess.run(cmd, check=False, text=True, capture_output=True)
-            _print_subprocess_output("[pip]", res)
-            if res.returncode == 0:
-                print("  [ok] pip update complete.")
-                return
-        except Exception:
-            continue
-
-    print("  [error] Update failed with all available methods.")
-    print("  Try manually:")
-    print(f"    pipx install --force \"git+{args.update_repo}\"")
-    sys.exit(1)
-
-
 def main():
-    """Main entry point."""
-    # Wayland support: Tkinter (via Tcl/Tk) often fails on Wayland unless forced to X11.
     if os.environ.get("XDG_SESSION_TYPE") == "wayland":
         if "GDK_BACKEND" not in os.environ:
             os.environ["GDK_BACKEND"] = "x11"
@@ -1156,10 +702,6 @@ def main():
         list_interfaces()
         sys.exit(0)
 
-    if args.update:
-        _run_update(args)
-        sys.exit(0)
-
     if args.scan:
         print_banner()
         requested_scan = args.scan
@@ -1167,80 +709,69 @@ def main():
         if args.monitor:
             if sys.platform == "linux":
                 if not check_privileges():
-                    print("  [!] Root privileges required for monitor mode.")
+                    print("  [!] Root required for monitor mode.")
                     sys.exit(1)
-
-                # Special targeting: if SSID is provided, try to find its channel and lock it.
                 if args.ssid:
-                    print(f"  [monitor] Hunting for SSID '{args.ssid}'...")
+                    print(f"  [monitor] Hunting for SSID '{args.ssid}' on {requested_scan}...")
                     target_channel = None
                     try:
                         networks = discover_wifi_networks()
                         for net in networks:
                             if str(net.get('ssid')).lower() == args.ssid.lower():
-                                # Try to get channel from iw scan if available
-                                out = subprocess.check_output(["iw", "dev", requested_scan, "scan"], stderr=subprocess.DEVNULL).decode("utf-8")
+                                out = subprocess.check_output(
+                                    ["iw", "dev", requested_scan, "scan"], stderr=subprocess.DEVNULL
+                                ).decode("utf-8")
                                 found_this = False
                                 for line in out.splitlines():
-                                    if f"SSID: {args.ssid}" in line: found_this = True
+                                    if f"SSID: {args.ssid}" in line:
+                                        found_this = True
                                     if found_this and "DS Parameter set: channel" in line:
                                         target_channel = line.split("channel")[1].strip()
                                         break
-                                if target_channel: break
-                    except Exception: pass
-
+                                if target_channel:
+                                    break
+                    except Exception:
+                        pass
                     _set_monitor_mode(requested_scan, True)
                     if target_channel:
                         print(f"  [monitor] Locking {requested_scan} to channel {target_channel}")
                         subprocess.call(["iw", "dev", requested_scan, "set", "channel", target_channel])
+                    else:
+                        print("  [monitor] Monitor mode active, scanning all channels")
                 else:
                     _set_monitor_mode(requested_scan, True)
             else:
-                print("  [warn] Monitor mode only supported on Linux via 'iw'.")
+                print("  [warn] Monitor mode only supported on Linux")
 
         resolved_iface = _resolve_scan_interface(requested_scan)
         if not resolved_iface:
-            suggested_iface = _suggest_interface(requested_scan)
+            suggested = _suggest_interface(requested_scan)
             print(f"  [error] Interface not found: {requested_scan}")
-            if suggested_iface:
-                print(f"  [hint] Did you mean: {suggested_iface}")
-            print("  [hint] Use a real interface name (e.g., wlan0/eth0/en0), not SSID.")
-            if args.name and not args.ssid:
-                print(f"  [hint] '--name {args.name}' sets the session name only.")
-                print(f"  [hint] For WiFi label use: --ssid {args.name}")
+            if suggested:
+                print(f"  [hint] Did you mean: {suggested}")
             print("  [hint] Run: sudo grudarin --list")
             sys.exit(1)
         if not _validate_interface_exists(resolved_iface):
-            print(f"  [error] Interface is not available right now: {resolved_iface}")
-            print("  [hint] Check adapter state and run: sudo grudarin --list")
+            print(f"  [error] Interface not available: {resolved_iface}")
             sys.exit(1)
         if resolved_iface != requested_scan:
-            print(f"  [info] Resolved '{requested_scan}' to interface '{resolved_iface}'")
-        if args.ssid:
-            print("  [legal] For authorized monitoring and security testing only.")
-        elif args.name:
-            known_ssids = {str(net.get('ssid', '')) for net in discover_wifi_networks()}
-            if args.name in known_ssids:
-                print(f"  [hint] '{args.name}' looks like a WiFi name.")
-                print(f"  [hint] If intended, use: --ssid {args.name}")
+            print(f"  [info] Resolved '{requested_scan}' -> '{resolved_iface}'")
 
         if not check_privileges():
-            print("  [!] ERROR: Root privileges required for network monitoring.")
-            print("  [!] Grudarin needs raw socket access to capture packets.")
-            print(f"  [!] Please run: sudo grudarin --scan {resolved_iface}")
-            print()
+            print("  [!] Root required for network monitoring.")
             sys.exit(1)
 
         output_dir = _resolve_output_base_dir(args.output)
         scan_name = args.name or "session"
         run_scan(resolved_iface, output_dir, scan_name, args)
     elif args.scan_site:
+        from grudarin.graph_window import GraphWindow
+        from grudarin.site_scan import SiteGraphModel, SiteScanner
         print_banner()
         output_dir = _resolve_output_base_dir(args.output)
         scan_name = args.name or args.scan_site
         run_site_scan(args.scan_site, output_dir, scan_name, args)
     else:
-        # Interactive mode
         iface, output_dir, scan_name = interactive_mode()
         args.duration = 0
         args.ports = "1-1024"
@@ -1249,6 +780,10 @@ def main():
         args.no_graph = False
         args.promisc = True
         args.filter = None
+        args.stealth = False
+        args.target_ip = None
+        args.gateway_ip = None
         run_scan(iface, output_dir, scan_name, args)
+
 if __name__ == "__main__":
     main()
