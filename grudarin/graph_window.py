@@ -20,18 +20,18 @@ class GraphWindow:
     Native built-in graph view using Tkinter (no external graph frameworks).
     """
 
-    BG = "#0a0a0a"
-    PANEL = "#121212"
-    GRID = "#1c1c1c"
-    EDGE = "#404040"
-    EDGE_HOT = "#7a7a7a"
-    TEXT = "#f0f0f0"
-    DIM = "#a0a0a0"
-    NODE_ORANGE = "#ff7a1a"
-    NODE_ORANGE_DARK = "#cc5f12"
-    NODE_RED = "#d63031"
-    NODE_BORDER = "#f1f1f1"
-    ACCENT = "#ff8f1f"
+    BG = "#050505"
+    PANEL = "#0a0a0a"
+    GRID = "#111111"
+    EDGE = "#004400"
+    EDGE_HOT = "#00ff00"
+    TEXT = "#00ff00"
+    DIM = "#008800"
+    NODE_ORANGE = "#ff0000"
+    NODE_ORANGE_DARK = "#880000"
+    NODE_RED = "#ff0000"
+    NODE_BORDER = "#ffffff"
+    ACCENT = "#ff0000"
 
     def __init__(
         self,
@@ -834,7 +834,7 @@ class GraphWindow:
         self.detail_text = tk.Text(
             side,
             height=20,
-            bg="#0f0f0f",
+            bg="#000000",
             fg=self.TEXT,
             insertbackground=self.TEXT,
             relief="flat",

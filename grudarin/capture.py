@@ -236,6 +236,21 @@ class PacketCapture:
                 if pkt.haslayer(Raw):
                     try:
                         raw_payload = bytes(pkt[Raw].load[:4096])
+
+                        # Sensitive info extraction (Spy mode)
+                        payload_text = raw_payload.decode("utf-8", errors="ignore")
+                        if tcp.dport == 21 or tcp.sport == 21: # FTP
+                            if "USER " in payload_text:
+                                record.activity = f"ftp_user:{payload_text.split('USER ')[1].strip()}"
+                                self._remember_activity(record.src_ip, record.activity, "ftp_login", record.activity)
+                            elif "PASS " in payload_text:
+                                record.activity = "ftp_pass:*******"
+                                self._remember_activity(record.src_ip, record.activity, "ftp_login", "Password obscured")
+
+                        elif tcp.dport == 23 or tcp.sport == 23: # Telnet
+                            # Simple extraction of possible login prompts or typed text
+                            if len(payload_text.strip()) > 0:
+                                record.activity = f"telnet_data:{payload_text.strip()[:20]}"
                         host, path, summary = self._extract_http_activity(raw_payload)
                         if host:
                             activity = f"http://{host}{path}"
