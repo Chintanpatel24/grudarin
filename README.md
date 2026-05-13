@@ -10,12 +10,12 @@
 ---
 
 # Grudarin
->- Grudarin is an open-source network activity monitor and LAN mapper for authorized security analysis and education. It captures real-time traffic metadata, highlights destinations such as DNS, HTTP hostnames, and TLS SNI names when available, and helps operators understand how devices communicate on a network without breaking HTTPS encryption.
-- real-time packet monitoring
-- live activity and destination feed
+>- Grudarin is a powerful open-source Network Monitor (Spy of your own network) for authorized security analysis and education. It captures real-time traffic metadata, highlights destinations such as DNS, HTTP hostnames, and TLS SNI names when available, and helps operators understand how devices communicate on a network without breaking HTTPS encryption.
+- real-time packet monitoring (Spy mode)
+- live network activity and destination feed
 - node-level vulnerability scanning
 - dashboard-first native GUI
-- markdown + JSON reporting
+- markdown + JSON reporting saves details in system
 
 > [!IMPORTANT]
 > Grudarin is for ethical and educational use only.
@@ -38,7 +38,7 @@
 ## Key Capabilities
 
 - Real-time activity dashboard for packets, destinations, devices, and protocols
-- Optional LAN topology graph for structural mapping
+- Network Activity Map for structural visualization
 - Flat orange/red nodes on a black dashboard
 - Live edge relation labels and per-node connection labels
 - Node inspector with:
@@ -52,7 +52,7 @@
   - relation/link type counts
   - top talkers
   - realtime timeline (nodes/events/bytes)
-- Site scan mode with graph entities:
+- Site scan mode (grudarin -s):
   - DNS_NAME, IP_ADDRESS, IP_RANGE, OPEN_TCP_PORT
   - URL, EMAIL_ADDRESS, STORAGE_BUCKET
   - ORG_STUB, USER_STUB
@@ -159,10 +159,10 @@ cd netprobe && go build -o ../bin/grudarin_netprobe netprobe.go && cd ..
 - **Zero tracking, zero telemetry** - completely offline and private
 
 > [!NOTE]
->- **Live Activity Monitor + Vulnerability Scanner + LAN Mapper**
+>- **Network Monitor (Spy) + Vulnerability Scanner**
 >- **Grudarin** is an open-source cybersecurity tool for authorized monitoring that
 >captures live network activity, discovers devices, scans for vulnerabilities and
->misconfigurations, maps LAN structure when needed, and saves detailed reports in
+>misconfigurations, maps network structure, and saves detailed reports in
 >Markdown with security findings highlighted in red bold text.
 
 ## Quick launcher (local)
