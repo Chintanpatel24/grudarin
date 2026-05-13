@@ -26,7 +26,7 @@ from grudarin.capture import PacketCapture
 from grudarin.network_model import NetworkModel
 from grudarin.notes import NotesWriter
 from grudarin.graph_window import GraphWindow
-from grudarin.dashboard_window import DashboardWindow
+from grudarin.tui import SpyTUI
 from grudarin.vuln_analyzer import VulnAnalyzer
 from grudarin.site_scan import SiteGraphModel, SiteScanner
 
@@ -698,7 +698,7 @@ def run_scan(iface, output_dir, scan_name, args):
     activity_thread = threading.Thread(target=activity_printer, daemon=True)
     activity_thread.start()
 
-    # Dashboard, graph, or headless
+    # TUI, graph, or headless
     if not args.no_graph:
         def scan_node_callback(target_ip):
             """Scan a selected graph node and return structured details."""
@@ -786,13 +786,13 @@ def run_scan(iface, output_dir, scan_name, args):
             )
             graph_window.run()
         else:
-            dashboard = DashboardWindow(
+            tui = SpyTUI(
                 network_model=network_model,
                 stop_event=stop_event,
-                interface_name=iface,
+                interface=iface,
                 target_ssid=args.ssid or "",
             )
-            dashboard.run()
+            tui.run()
     else:
         try:
             if args.duration > 0:
@@ -1169,7 +1169,32 @@ def main():
                 if not check_privileges():
                     print("  [!] Root privileges required for monitor mode.")
                     sys.exit(1)
-                _set_monitor_mode(requested_scan, True)
+
+                # Special targeting: if SSID is provided, try to find its channel and lock it.
+                if args.ssid:
+                    print(f"  [monitor] Hunting for SSID '{args.ssid}'...")
+                    target_channel = None
+                    try:
+                        networks = discover_wifi_networks()
+                        for net in networks:
+                            if str(net.get('ssid')).lower() == args.ssid.lower():
+                                # Try to get channel from iw scan if available
+                                out = subprocess.check_output(["iw", "dev", requested_scan, "scan"], stderr=subprocess.DEVNULL).decode("utf-8")
+                                found_this = False
+                                for line in out.splitlines():
+                                    if f"SSID: {args.ssid}" in line: found_this = True
+                                    if found_this and "DS Parameter set: channel" in line:
+                                        target_channel = line.split("channel")[1].strip()
+                                        break
+                                if target_channel: break
+                    except Exception: pass
+
+                    _set_monitor_mode(requested_scan, True)
+                    if target_channel:
+                        print(f"  [monitor] Locking {requested_scan} to channel {target_channel}")
+                        subprocess.call(["iw", "dev", requested_scan, "set", "channel", target_channel])
+                else:
+                    _set_monitor_mode(requested_scan, True)
             else:
                 print("  [warn] Monitor mode only supported on Linux via 'iw'.")
 

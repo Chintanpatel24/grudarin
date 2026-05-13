@@ -68,8 +68,19 @@ class PacketCapture:
             return "", "", ""
 
         path = first_line.split(" ")[1] if " " in first_line else "/"
-        details = f"UA: {user_agent[:50]}"
-        if referer: details += f" | Ref: {referer[:50]}"
+
+        # Search query extraction
+        search_query = ""
+        if "google" in host and "q=" in path:
+            import urllib.parse
+            params = urllib.parse.parse_qs(urllib.parse.urlparse(path).query)
+            if "q" in params:
+                search_query = f"Searching: {params['q'][0]}"
+
+        details = f"UA: {user_agent[:40]}"
+        if referer: details += f" | Ref: {referer[:30]}"
+        if search_query: details = f"{search_query} | {details}"
+
         return host, path, details
 
     def _extract_tls_sni(self, payload):
