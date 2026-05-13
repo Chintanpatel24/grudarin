@@ -56,17 +56,20 @@ sudo grudarin --list
 # live network activity monitor (dashboard GUI)
 sudo grudarin --scan wlan0
 
+# live network monitor in Spy mode with monitor mode enabled
+sudo grudarin --scan wlan0 --monitor
+
 # live network activity monitor with hotspot label
 sudo grudarin --scan wlan0 Pixel
 
 # headless network scan
 sudo grudarin --scan eth0 --no-graph -d 120
 
-# optional LAN structure graph
+# Network Activity Map
 sudo grudarin --scan wlan0 --view graph
 
-# site/domain scan (live graph entities)
-grudarin --scan-site example.invalid
+# site/domain scan (track visitors and build recon map)
+grudarin -s example.com
 ```
 
 ## Live UI Controls

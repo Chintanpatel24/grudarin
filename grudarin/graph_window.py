@@ -340,6 +340,7 @@ class GraphWindow:
         stats = self.model.get_stats()
         c.create_rectangle(0, 0, self.graph_w, 30, fill="#0f0f0f", outline="#1f1f1f")
         status = (
+            f"● LIVE  "
             f"Packets:{stats.get('total_packets',0)}  "
             f"Devices:{stats.get('total_devices',0)}  "
             f"Links:{stats.get('total_connections',0)}  "
@@ -766,7 +767,7 @@ class GraphWindow:
                 time.sleep(0.5)
             return
 
-        self.root.title(f"Grudarin v{__version__} - Built-in Graph View")
+        self.root.title(f"Grudarin v{__version__} - Network Activity Map")
         self.root.geometry(f"{self.w}x{self.h}")
         self.root.configure(bg=self.BG)
 
@@ -792,7 +793,7 @@ class GraphWindow:
 
         title = tk.Label(
             side,
-            text="GRUDARIN NODE INSPECTOR",
+            text="NETWORK ACTIVITY INSPECTOR",
             bg=self.PANEL,
             fg=self.ACCENT,
             font=("Courier", 12, "bold"),

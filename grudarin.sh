@@ -32,6 +32,7 @@ fi
 ENTRY="$DIR/grudarin/__main__.py"
 
 if [ "$EUID" -ne 0 ]; then
+	echo "  [info] Grudarin requires root privileges for packet capture. Escalating with sudo..."
 	if [ -f "$ENTRY" ]; then
 		exec sudo "$PY" "$ENTRY" "$@"
 	else

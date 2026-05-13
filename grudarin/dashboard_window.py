@@ -54,7 +54,7 @@ class DashboardWindow:
 
     def _build(self):
         self.root = tk.Tk()
-        self.root.title(f"Grudarin v{__version__} - Live Dashboard")
+        self.root.title(f"Grudarin v{__version__} - Network Monitor (Spy)")
         self.root.geometry("1380x860")
         self.root.configure(bg=self.BG)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -66,7 +66,7 @@ class DashboardWindow:
         title = tk.Label(
             header,
             text=(
-                f"GRUDARIN LIVE ACTIVITY MONITOR  |  IFACE: {self.interface_name}"
+                f"● LIVE NETWORK MONITOR (SPY)  |  IFACE: {self.interface_name}"
                 f"  |  SSID: {self.target_ssid}"
             ),
             bg=self.PANEL,

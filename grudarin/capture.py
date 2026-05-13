@@ -40,33 +40,43 @@ class PacketCapture:
     def _extract_http_activity(self, payload):
         """Extract HTTP host/path from plaintext requests."""
         try:
-            text = payload[:2048].decode("utf-8", errors="ignore")
+            text = payload[:4096].decode("utf-8", errors="ignore")
         except Exception:
             return "", "", ""
 
-        first_line = text.splitlines()[0] if text else ""
+        if not text: return "", "", ""
+        lines = text.splitlines()
+        first_line = lines[0]
         if not first_line.startswith(
             ("GET ", "POST ", "PUT ", "DELETE ", "HEAD ", "OPTIONS ", "PATCH ")
         ):
             return "", "", ""
 
         host = ""
-        for line in text.splitlines()[:40]:
-            if line.lower().startswith("host:"):
+        user_agent = ""
+        referer = ""
+        for line in lines[1:60]:
+            low = line.lower()
+            if low.startswith("host:"):
                 host = line.split(":", 1)[1].strip()
-                break
+            elif low.startswith("user-agent:"):
+                user_agent = line.split(":", 1)[1].strip()
+            elif low.startswith("referer:"):
+                referer = line.split(":", 1)[1].strip()
+
         if not host:
             return "", "", ""
 
         path = first_line.split(" ")[1] if " " in first_line else "/"
-        return host, path, first_line[:120]
+        details = f"UA: {user_agent[:50]}"
+        if referer: details += f" | Ref: {referer[:50]}"
+        return host, path, details
 
     def _extract_tls_sni(self, payload):
         """Best-effort extraction of TLS SNI hostname from a ClientHello."""
         try:
-            if len(payload) < 11 or payload[0] != 0x16:
-                return ""
-            if payload[5] != 0x01:
+            # 0x16 = Handshake, 0x01 = ClientHello
+            if len(payload) < 44 or payload[0] != 0x16 or payload[5] != 0x01:
                 return ""
 
             pos = 9
