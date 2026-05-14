@@ -49,6 +49,7 @@ class SpyTUI:
         )
         layout["right"].split_column(
             Layout(name="stats", size=8),
+            Layout(name="duration", ratio=1),
             Layout(name="targets", ratio=1)
         )
         return layout
@@ -113,6 +114,27 @@ class SpyTUI:
 
         return Panel(text, title="[bold yellow]SESSION STATS[/bold yellow]", box=box.ROUNDED, border_style="yellow")
 
+    def generate_durations(self) -> Panel:
+        table = Table(expand=True, box=box.SIMPLE)
+        table.add_column("Activity", style="green")
+        table.add_column("Total Time", justify="right", style="yellow")
+
+        with self.model.lock:
+            # key = (source_ip, target)
+            sorted_sessions = sorted(
+                self.model.activity_sessions.items(),
+                key=lambda x: x[1]["total_duration"],
+                reverse=True
+            )
+
+            for (src, tgt), sess in sorted_sessions[:8]:
+                dur = int(sess["total_duration"])
+                if dur == 0: continue
+                t_str = f"{dur}s" if dur < 60 else f"{dur//60}m {dur%60}s"
+                table.add_row(f"{src} -> {tgt[:25]}", t_str)
+
+        return Panel(table, title="[bold green]TOP SESSION DURATIONS[/bold green]", box=box.ROUNDED, border_style="green")
+
     def generate_targets(self) -> Panel:
         table = Table(expand=True, box=box.SIMPLE)
         table.add_column("Device", style="cyan")
@@ -142,6 +164,7 @@ class SpyTUI:
                 layout["activity"].update(self.generate_activity())
                 layout["packets"].update(self.generate_packets())
                 layout["stats"].update(self.generate_stats())
+                layout["duration"].update(self.generate_durations())
                 layout["targets"].update(self.generate_targets())
                 layout["footer"].update(self.generate_footer())
                 time.sleep(0.2)

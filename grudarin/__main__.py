@@ -68,11 +68,26 @@ def discover_wifi_networks():
                     for line in out.strip().splitlines():
                         parts = line.split(":")
                         if len(parts) >= 4 and parts[0].strip():
+                            # Try to get channel via nmcli -f
+                            chan = "?"
+                            try:
+                                c_out = subprocess.check_output(
+                                    ["nmcli", "-t", "-f", "SSID,CHAN", "dev", "wifi", "list"],
+                                    stderr=subprocess.DEVNULL, timeout=5
+                                ).decode("utf-8")
+                                for cl in c_out.splitlines():
+                                    cp = cl.split(":")
+                                    if cp[0] == parts[0]:
+                                        chan = cp[1]
+                                        break
+                            except Exception: pass
+
                             networks.append({
                                 "ssid": parts[0].strip(),
                                 "bssid": parts[1].strip(),
                                 "signal": parts[2].strip(),
                                 "security": parts[3].strip(),
+                                "channel": chan,
                             })
                 except Exception:
                     pass
@@ -145,12 +160,13 @@ def list_interfaces():
     print("  " + "-" * 60)
     wifi_nets = discover_wifi_networks()
     if wifi_nets:
-        print(f"  {'SSID':<25} {'BSSID':<20} {'Signal':<8} {'Security'}")
+        print(f"  {'SSID':<25} {'BSSID':<20} {'Chan':<6} {'Signal':<8} {'Security'}")
         print("  " + "-" * 60)
         for net in wifi_nets:
             print(
                 f"  {net.get('ssid','?'):<25} "
                 f"{net.get('bssid','?'):<20} "
+                f"{net.get('channel','?'):<6} "
                 f"{net.get('signal','?'):<8} "
                 f"{net.get('security','?')}"
             )

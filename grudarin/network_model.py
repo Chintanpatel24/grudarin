@@ -223,6 +223,7 @@ class NetworkModel:
         self.dns_cache = {}         # ip -> hostname
         self.changes_log = []       # list of change events
         self.activity_log = []      # list of high-level activity events
+        self.activity_sessions = defaultdict(lambda: {"start": 0, "last": 0, "total_duration": 0})
         self._max_packet_log = 50000  # cap to prevent memory issues
         self._max_activity_log = 2000
 
@@ -408,6 +409,7 @@ class NetworkModel:
         """Record a high-level realtime activity (DNS/HTTP/etc)."""
         if not target:
             return
+        now = time.time()
         with self.lock:
             self.activity_log.append({
                 "time": datetime.now().isoformat(),
@@ -418,6 +420,18 @@ class NetworkModel:
             })
             if len(self.activity_log) > self._max_activity_log:
                 self.activity_log = self.activity_log[-self._max_activity_log:]
+
+            # Session duration tracking
+            key = (source_ip, target)
+            sess = self.activity_sessions[key]
+            if sess["start"] == 0:
+                sess["start"] = now
+                sess["last"] = now
+            else:
+                duration = now - sess["last"]
+                if duration < 60: # If activity seen within 60s, consider it the same session
+                    sess["total_duration"] += duration
+                sess["last"] = now
 
     def get_activity_since(self, start_index=0):
         """Return activity entries added since a given index."""

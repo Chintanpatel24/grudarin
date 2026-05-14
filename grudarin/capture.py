@@ -275,12 +275,24 @@ class PacketCapture:
                         elif tcp.dport in (443, 8443):
                             tls_host = self._extract_tls_sni(raw_payload)
                             if tls_host:
+                                # App detection
+                                app_name = ""
+                                lower_host = tls_host.lower()
+                                if "whatsapp" in lower_host: app_name = "[WhatsApp]"
+                                elif "instagram" in lower_host: app_name = "[Instagram]"
+                                elif "facebook" in lower_host or "fbcdn" in lower_host: app_name = "[Facebook]"
+                                elif "netflix" in lower_host: app_name = "[Netflix]"
+                                elif "youtube" in lower_host or "googlevideo" in lower_host: app_name = "[YouTube]"
+
                                 record.activity = f"tls://{tls_host}"
+                                details = f"dst={record.dst_ip}:{tcp.dport}"
+                                if app_name: details = f"{app_name} {details}"
+
                                 self._remember_activity(
                                     record.src_ip,
                                     tls_host,
                                     "tls_sni",
-                                    f"dst={record.dst_ip}:{tcp.dport}",
+                                    details,
                                 )
                     except Exception:
                         pass
