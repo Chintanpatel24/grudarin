@@ -6,11 +6,11 @@ Captures and extracts intelligence from live network traffic — DNS queries, TL
 ## Architecture
 
 ```
-┌─────────────────────┐     JSON lines      ┌────────────────┐     TUI     ┌──────────┐
-│  C Capture Engine    │────────────────────▶│ Python Model    │───────────▶│  Rich    │
-│  (libpcap + ARP)    │  real-time stream    │ (behavioral)   │            │  TUI     │
-└─────────────────────┘                      └────────────────┘            └──────────┘
-         │                                                                         
+┌─────────────────────┐     JSON lines       ┌────────────────┐     TUI     ┌──────────┐
+│  C Capture Engine   │────────────────────▶│ Python Model   │──────────▶ │  Rich    │
+│  (libpcap + ARP)    │  real-time stream    │ (behavioral)   │             │  TUI     │
+└─────────────────────┘                      └────────────────┘             └──────────┘
+         │                                                                         │ 
          └── Scapy fallback if C engine not compiled ──────────────────────────────┘
 ```
 
