@@ -1,5 +1,9 @@
 # Grudarin v2.0 — Network Spy & Intelligence Tool
 
+>[!NOTE]
+>this repo is oly for a experements , for a contribution visits a real one
+>
+
 Real-time network surveillance with per-device behavioral tracking.  
 Captures and extracts intelligence from live network traffic — DNS queries, TLS SNI, HTTP requests, search queries, and more. All data sourced directly from packet inspection.
 
